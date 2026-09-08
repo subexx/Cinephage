@@ -1,25 +1,9 @@
 import type { PageServerLoad } from './$types';
 import { getExtractionCacheManager } from '$lib/server/streaming/nzb/extraction/ExtractionCacheManager';
-import { getRecoverableApiKeyByType } from '$lib/server/auth';
-import { getBaseUrlAsync } from '$lib/server/streaming';
-import { buildStremioDeepLink, buildStremioManifestUrl } from '$lib/server/stremio/urls.js';
-import { getStremioAddonSettings } from '$lib/server/stremio/addon-settings.js';
-import {
-	STREMIO_FORMAT_PRESET_LABELS,
-	STREMIO_FORMAT_PRESETS
-} from '$lib/shared/stremio-format.js';
 
-export const load: PageServerLoad = async ({ request }) => {
+export const load: PageServerLoad = async () => {
 	const cacheManager = getExtractionCacheManager();
-	const [stats, streamingApiKey, baseUrl, addonSettings] = await Promise.all([
-		cacheManager.getStats(),
-		getRecoverableApiKeyByType('streaming'),
-		getBaseUrlAsync(request),
-		getStremioAddonSettings()
-	]);
-
-	const manifestUrl =
-		streamingApiKey && baseUrl ? buildStremioManifestUrl(baseUrl, streamingApiKey) : null;
+	const stats = await cacheManager.getStats();
 
 	return {
 		cacheStats: {
@@ -28,17 +12,8 @@ export const load: PageServerLoad = async ({ request }) => {
 			expiredCount: stats.expiredCount
 		},
 		settings: {
-			retentionHours: 48,
+			retentionHours: 48, // Default, could be stored in database
 			maxCacheSizeGB: 0
-		},
-		stremio: {
-			manifestUrl,
-			installUrl: manifestUrl ? buildStremioDeepLink(manifestUrl) : null,
-			hasStreamingKey: Boolean(streamingApiKey),
-			addonName: addonSettings.addonName,
-			format: addonSettings.format,
-			presets: STREMIO_FORMAT_PRESETS,
-			presetLabels: STREMIO_FORMAT_PRESET_LABELS
 		}
 	};
 };
