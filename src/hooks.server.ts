@@ -143,9 +143,6 @@ const customHandler: Handle = async ({ event, resolve }) => {
 				if (path.startsWith('/api/streaming/library/')) {
 					return true;
 				}
-				if (path.startsWith('/api/streaming/stremio/')) {
-					return true;
-				}
 				if (isStremioAddonPath(path)) {
 					return true;
 				}
