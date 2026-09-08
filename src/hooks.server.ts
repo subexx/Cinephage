@@ -20,6 +20,11 @@ import { ensureServicesInitialized } from '$lib/server/services/initializer.js';
 import '$lib/server/services/shutdown.js';
 import { handleError } from '$lib/server/hooks/error-handler.js';
 import { isTrustedOrigin } from '$lib/server/utils/origin.js';
+import {
+	isStremioAddonPath,
+	parseStremioApiKeyFromPath
+} from '$lib/server/stremio/ids.js';
+import { STREMIO_CORS_HEADERS } from '$lib/server/stremio/constants.js';
 
 export { handleError };
 
@@ -138,6 +143,9 @@ const customHandler: Handle = async ({ event, resolve }) => {
 				if (path.startsWith('/api/streaming/library/')) {
 					return true;
 				}
+				if (isStremioAddonPath(path)) {
+					return true;
+				}
 				return false;
 			}
 
@@ -221,10 +229,24 @@ const customHandler: Handle = async ({ event, resolve }) => {
 			}
 
 			if (isStreamingApiRoute) {
+				const stremioCors = isStremioAddonPath(pathname) ? STREMIO_CORS_HEADERS : {};
+				if (isStremioAddonPath(pathname) && event.request.method === 'OPTIONS') {
+					return new Response(null, {
+						status: 204,
+						headers: {
+							'x-correlation-id': correlationId,
+							'x-support-id': supportId,
+							...BASE_SECURITY_HEADERS,
+							...STREMIO_CORS_HEADERS
+						}
+					});
+				}
+
 				const url = new URL(event.request.url);
 				const apiKeyFromQuery = url.searchParams.get('api_key');
 				const apiKeyFromHeader = event.request.headers.get('x-api-key');
-				const apiKey = apiKeyFromQuery || apiKeyFromHeader;
+				const apiKey =
+					apiKeyFromQuery || apiKeyFromHeader || parseStremioApiKeyFromPath(pathname);
 
 				if (!apiKey) {
 					return json(
@@ -238,7 +260,8 @@ const customHandler: Handle = async ({ event, resolve }) => {
 							headers: {
 								'x-correlation-id': correlationId,
 								'x-support-id': supportId,
-								...BASE_SECURITY_HEADERS
+								...BASE_SECURITY_HEADERS,
+								...stremioCors
 							}
 						}
 					);
@@ -289,7 +312,8 @@ const customHandler: Handle = async ({ event, resolve }) => {
 								headers: {
 									'x-correlation-id': correlationId,
 									'x-support-id': supportId,
-									...BASE_SECURITY_HEADERS
+									...BASE_SECURITY_HEADERS,
+									...stremioCors
 								}
 							}
 						);
@@ -317,7 +341,8 @@ const customHandler: Handle = async ({ event, resolve }) => {
 							status: 401,
 							headers: {
 								'x-correlation-id': correlationId,
-								...BASE_SECURITY_HEADERS
+								...BASE_SECURITY_HEADERS,
+								...stremioCors
 							}
 						}
 					);
@@ -403,6 +428,7 @@ const customHandler: Handle = async ({ event, resolve }) => {
 			}
 
 			const isStreamingRoute = event.url.pathname.startsWith('/api/streaming/');
+			const isStremioRoute = isStremioAddonPath(event.url.pathname);
 
 			requestLogger.debug('Incoming request');
 
@@ -424,13 +450,21 @@ const customHandler: Handle = async ({ event, resolve }) => {
 					});
 				}
 
-				if (isStreamingRoute) {
+				if (isStreamingRoute || isStremioRoute) {
 					for (const [header, value] of Object.entries(BASE_SECURITY_HEADERS)) {
 						response.headers.set(header, value);
 					}
 					response.headers.set('Access-Control-Allow-Origin', '*');
-					response.headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-					response.headers.set('Access-Control-Allow-Headers', 'Range, Content-Type');
+					response.headers.set(
+						'Access-Control-Allow-Methods',
+						isStremioRoute ? 'GET, HEAD, OPTIONS' : 'GET, OPTIONS'
+					);
+					response.headers.set(
+						'Access-Control-Allow-Headers',
+						isStremioRoute
+							? 'Range, Content-Type, Authorization, X-Requested-With'
+							: 'Range, Content-Type'
+					);
 				} else {
 					for (const [header, value] of Object.entries(SECURITY_HEADERS)) {
 						response.headers.set(header, value);
@@ -442,7 +476,7 @@ const customHandler: Handle = async ({ event, resolve }) => {
 
 				return response;
 			} catch (error) {
-				if (isStreamingRoute) {
+				if (isStreamingRoute || isStremioRoute) {
 					requestLogger.error({ err: error, logDomain: 'streams' }, 'Streaming route error');
 					const message = error instanceof Error ? error.message : 'Stream error';
 					return new Response(message, {
@@ -451,7 +485,8 @@ const customHandler: Handle = async ({ event, resolve }) => {
 							'Content-Type': 'text/plain',
 							'x-correlation-id': correlationId,
 							'x-support-id': supportId,
-							...BASE_SECURITY_HEADERS
+							...BASE_SECURITY_HEADERS,
+							...(isStremioRoute ? STREMIO_CORS_HEADERS : {})
 						}
 					});
 				}

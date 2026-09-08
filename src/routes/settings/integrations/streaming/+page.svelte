@@ -1,15 +1,28 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages.js';
-	import { HardDrive, Trash2, RefreshCw, Archive, Clock } from 'lucide-svelte';
-	import { cleanupStreamingCache } from '$lib/api/settings.js';
+	import { HardDrive, Trash2, RefreshCw, Archive, Clock, Copy, Plug } from 'lucide-svelte';
+	import { cleanupStreamingCache, updateStremioAddonSettings } from '$lib/api/settings.js';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { SettingsPage, SettingsSection } from '$lib/components/ui/settings';
+	import { copyToClipboard } from '$lib/utils/clipboard';
+	import { previewStreamFormat, type StremioFormatConfig } from '$lib/shared/stremio-format.js';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
 	let cleaning = $state(false);
 	let cleanupResult = $state<{ cleaned: number; freedMB: number } | null>(null);
+	let savingFormat = $state(false);
+	let addonName = $state(data.stremio.addonName);
+	let formatName = $state(data.stremio.format.name);
+	let formatDescription = $state(data.stremio.format.description);
+
+	const formatPreview = $derived(
+		previewStreamFormat({
+			addonName,
+			format: { name: formatName, description: formatDescription }
+		})
+	);
 
 	async function handleCleanup() {
 		cleaning = true;
@@ -27,6 +40,37 @@
 			cleaning = false;
 		}
 	}
+
+	async function copyUrl(value: string) {
+		const ok = await copyToClipboard(value);
+		if (ok) {
+			toasts.success(m.settings_streaming_stremioCopied());
+		} else {
+			toasts.error(m.settings_streaming_stremioCopyFailed());
+		}
+	}
+
+	function applyPreset(preset: StremioFormatConfig) {
+		formatName = preset.name;
+		formatDescription = preset.description;
+	}
+
+	async function saveFormat() {
+		savingFormat = true;
+		try {
+			await updateStremioAddonSettings({
+				addonName,
+				format: { name: formatName, description: formatDescription }
+			});
+			toasts.success(m.settings_streaming_stremioFormatSaved());
+		} catch (error) {
+			toasts.error(
+				error instanceof Error ? error.message : m.settings_streaming_stremioFormatSaveFailed()
+			);
+		} finally {
+			savingFormat = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -37,6 +81,110 @@
 	title={m.settings_streaming_heading()}
 	subtitle={m.settings_streaming_extractionCacheDescription()}
 >
+	<SettingsSection
+		title={m.settings_streaming_stremioTitle()}
+		description={m.settings_streaming_stremioDescription()}
+	>
+		{#if data.stremio.manifestUrl}
+			<div class="space-y-3">
+				<div>
+					<div class="mb-1 text-sm font-medium">{m.settings_streaming_stremioManifestUrl()}</div>
+					<div class="flex flex-col gap-2 sm:flex-row">
+						<input
+							class="input-bordered input w-full font-mono text-xs"
+							readonly
+							value={data.stremio.manifestUrl}
+						/>
+						<button
+							class="btn gap-2 btn-outline btn-sm"
+							onclick={() => copyUrl(data.stremio.manifestUrl!)}
+							type="button"
+						>
+							<Copy class="h-4 w-4" />
+							{m.settings_streaming_stremioCopy()}
+						</button>
+					</div>
+				</div>
+				{#if data.stremio.installUrl}
+					<div>
+						<div class="mb-1 text-sm font-medium">{m.settings_streaming_stremioInstallUrl()}</div>
+						<div class="flex flex-col gap-2 sm:flex-row">
+							<input
+								class="input-bordered input w-full font-mono text-xs"
+								readonly
+								value={data.stremio.installUrl}
+							/>
+							<button
+								class="btn gap-2 btn-outline btn-sm"
+								onclick={() => copyUrl(data.stremio.installUrl!)}
+								type="button"
+							>
+								<Copy class="h-4 w-4" />
+								{m.settings_streaming_stremioCopy()}
+							</button>
+						</div>
+					</div>
+				{/if}
+				<p class="text-sm text-base-content/70">{m.settings_streaming_stremioHint()}</p>
+			</div>
+		{:else}
+			<div class="alert alert-warning">
+				<Plug class="h-5 w-5" />
+				<span>{m.settings_streaming_stremioMissingKey()}</span>
+			</div>
+		{/if}
+
+		<div class="mt-6 grid gap-4 lg:grid-cols-2">
+			<div class="space-y-4">
+				<label class="form-control w-full">
+					<span class="label-text mb-1">{m.settings_streaming_stremioAddonName()}</span>
+					<input class="input-bordered input input-sm" bind:value={addonName} />
+				</label>
+				<div class="flex flex-wrap gap-2">
+					{#each Object.entries(data.stremio.presets) as [id, preset]}
+						<button
+							class="btn btn-ghost btn-xs"
+							onclick={() => applyPreset(preset)}
+							type="button"
+						>
+							{data.stremio.presetLabels[id] ?? id}
+						</button>
+					{/each}
+				</div>
+				<label class="form-control w-full">
+					<span class="label-text mb-1">{m.settings_streaming_stremioNameTemplate()}</span>
+					<textarea class="textarea-bordered textarea font-mono text-sm" rows="3" bind:value={formatName}
+					></textarea>
+				</label>
+				<label class="form-control w-full">
+					<span class="label-text mb-1">{m.settings_streaming_stremioDescriptionTemplate()}</span>
+					<textarea
+						class="textarea-bordered textarea font-mono text-sm"
+						rows="6"
+						bind:value={formatDescription}
+					></textarea>
+				</label>
+				<p class="text-xs text-base-content/60">{m.settings_streaming_stremioTokens()}</p>
+				<button
+					class="btn btn-primary btn-sm"
+					onclick={saveFormat}
+					disabled={savingFormat}
+					type="button"
+				>
+					{#if savingFormat}
+						<RefreshCw class="h-4 w-4 animate-spin" />
+					{/if}
+					{m.settings_streaming_stremioSaveFormat()}
+				</button>
+			</div>
+			<div class="rounded-xl bg-base-100 p-4">
+				<p class="mb-3 text-sm text-base-content/60">{m.settings_streaming_stremioPreview()}</p>
+				<p class="whitespace-pre-wrap font-medium text-primary">{formatPreview.name}</p>
+				<pre class="mt-2 whitespace-pre-wrap font-sans text-sm">{formatPreview.description}</pre>
+			</div>
+		</div>
+	</SettingsSection>
+
 	<!-- Extraction Cache Section -->
 	<SettingsSection title={m.settings_streaming_extractionCache()}>
 		<!-- Cache Stats -->

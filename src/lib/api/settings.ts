@@ -291,6 +291,13 @@ export async function cleanupStreamingCache() {
 	return apiPost('/api/settings/streaming/cache/cleanup');
 }
 
+export async function updateStremioAddonSettings(payload: {
+	addonName: string;
+	format: { name: string; description: string };
+}) {
+	return apiPut('/api/settings/stremio-addon', payload);
+}
+
 export async function getExternalUrl() {
 	return apiGet('/api/settings/external-url');
 }
