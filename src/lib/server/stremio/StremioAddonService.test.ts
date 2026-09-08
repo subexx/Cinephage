@@ -73,14 +73,14 @@ describe('StremioAddonService', () => {
 		expect(streams[0].name).toBe('Cinephage 2160p | Cinephage');
 		expect(streams[0].description).toContain('The.Matrix.1999.2160p.WEB');
 		expect(streams[0].url).toBe(
-			'https://media.example.com/api/streaming/session/movie/603/master.m3u8?api_key=stream-key'
+			'https://media.example.com/api/streaming/stremio/movie/603?api_key=stream-key'
 		);
 		expect(streams[1].name).toBe('Cinephage 1080p | Cinephage');
 		expect(streams[1].description).toContain('The Matrix (1999).mkv');
 		expect(streams[1].description).toContain('H.264');
 		expect(streams[1].description).toContain('DD+ 5.1');
 		expect(streams[1].url).toBe(
-			'https://media.example.com/api/streaming/library/movie/f-mkv?api_key=stream-key#The%20Matrix%20(1999).mkv'
+			'https://media.example.com/api/streaming/library/movie/f-mkv/The%20Matrix%20(1999).mkv?api_key=stream-key'
 		);
 	});
 
@@ -118,7 +118,7 @@ describe('StremioAddonService', () => {
 		);
 		expect(streams).toHaveLength(1);
 		expect(streams[0].url).toBe(
-			'https://media.example.com/api/streaming/session/tv/1399/1/1/master.m3u8?api_key=k'
+			'https://media.example.com/api/streaming/stremio/tv/1399/1/1?api_key=k'
 		);
 	});
 

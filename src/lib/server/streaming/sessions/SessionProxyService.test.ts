@@ -66,6 +66,39 @@ describe('SessionProxyService.renderLaunchMedia', () => {
 		expect(upstreamInit.headers.range).toBe('bytes=0-3');
 	});
 
+	it('redirects Stremio resolve to a typed play URL by source type', async () => {
+		const { getPlaybackSessionStore } = await import('./session-store');
+		const { getSessionProxyService } = await import('./SessionProxyService');
+
+		const hls = getPlaybackSessionStore().createSession({
+			mediaType: 'movie',
+			tmdbId: 1,
+			entryUrl: 'https://cdn.example.com/index.m3u8',
+			sourceType: 'hls',
+			requestHeaders: {},
+			attempts: []
+		});
+		const mp4 = getPlaybackSessionStore().createSession({
+			mediaType: 'movie',
+			tmdbId: 2,
+			entryUrl: 'https://cdn.example.com/movie.mp4',
+			sourceType: 'mp4',
+			requestHeaders: {},
+			attempts: []
+		});
+
+		const hlsRedirect = getSessionProxyService().buildStremioPlayRedirect(hls, BASE_URL, 'k');
+		expect(hlsRedirect.status).toBe(302);
+		expect(hlsRedirect.headers.get('Location')).toBe(
+			`${BASE_URL}/api/streaming/session/${hls.token}/play.m3u8?api_key=k`
+		);
+
+		const mp4Redirect = getSessionProxyService().buildStremioPlayRedirect(mp4, BASE_URL, 'k');
+		expect(mp4Redirect.headers.get('Location')).toBe(
+			`${BASE_URL}/api/streaming/session/${mp4.token}/play.mp4?api_key=k`
+		);
+	});
+
 	it('returns the upstream error when an mp4 source fails', async () => {
 		fetchWithTimeoutMock.mockResolvedValue(
 			new Response(JSON.stringify({ error: 'gone' }), { status: 404 })

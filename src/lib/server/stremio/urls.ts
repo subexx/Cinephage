@@ -4,11 +4,11 @@ export function withApiKey(url: string, apiKey: string): string {
 }
 
 /**
- * Stremio/Nuvio need a `.m3u8` path so the player treats the URL as HLS/media.
- * Jellyfin .strm files keep using the extension-less session route.
+ * Stremio/Nuvio resolve URLs: create a session then 302 to play.m3u8 / play.mp4 / play.mpd.
+ * Jellyfin .strm files keep using the extension-less /session/... routes.
  */
 export function buildMovieSessionUrl(baseUrl: string, tmdbId: number, apiKey: string): string {
-	return withApiKey(`${baseUrl}/api/streaming/session/movie/${tmdbId}/master.m3u8`, apiKey);
+	return withApiKey(`${baseUrl}/api/streaming/stremio/movie/${tmdbId}`, apiKey);
 }
 
 export function buildEpisodeSessionUrl(
@@ -19,17 +19,13 @@ export function buildEpisodeSessionUrl(
 	apiKey: string
 ): string {
 	return withApiKey(
-		`${baseUrl}/api/streaming/session/tv/${tmdbId}/${season}/${episode}/master.m3u8`,
+		`${baseUrl}/api/streaming/stremio/tv/${tmdbId}/${season}/${episode}`,
 		apiKey
 	);
 }
 
-/** Append a filename fragment so players can sniff container when the path has no extension. */
-export function withFilenameHint(url: string, filename: string | undefined): string {
-	if (!filename) return url;
-	const safe = filename.replace(/[/\\#?]/g, '_');
-	if (!safe.includes('.')) return url;
-	return `${url}#${encodeURIComponent(safe)}`;
+function encodePathSegment(value: string): string {
+	return encodeURIComponent(value).replace(/%2F/gi, '');
 }
 
 export function buildMovieLibraryFileUrl(
@@ -38,10 +34,8 @@ export function buildMovieLibraryFileUrl(
 	apiKey: string,
 	filename?: string
 ): string {
-	return withFilenameHint(
-		withApiKey(`${baseUrl}/api/streaming/library/movie/${fileId}`, apiKey),
-		filename
-	);
+	const name = filename && filename.includes('.') ? encodePathSegment(filename) : 'video.mkv';
+	return withApiKey(`${baseUrl}/api/streaming/library/movie/${fileId}/${name}`, apiKey);
 }
 
 export function buildEpisodeLibraryFileUrl(
@@ -50,10 +44,8 @@ export function buildEpisodeLibraryFileUrl(
 	apiKey: string,
 	filename?: string
 ): string {
-	return withFilenameHint(
-		withApiKey(`${baseUrl}/api/streaming/library/episode/${fileId}`, apiKey),
-		filename
-	);
+	const name = filename && filename.includes('.') ? encodePathSegment(filename) : 'video.mkv';
+	return withApiKey(`${baseUrl}/api/streaming/library/episode/${fileId}/${name}`, apiKey);
 }
 
 export function buildStremioManifestUrl(baseUrl: string, apiKey: string): string {

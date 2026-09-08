@@ -314,6 +314,58 @@ export class SessionProxyService {
 	}
 
 	/**
+	 * Stremio/Nuvio open a single URL and sniff by extension. Resolve the real
+	 * source first, then 302 to a typed play URL so HLS is not assumed for MP4/DASH.
+	 */
+	buildStremioPlayRedirect(
+		session: PlaybackSession,
+		baseUrl: string,
+		apiKey: string | undefined
+	): Response {
+		const extension =
+			session.sourceType === 'dash'
+				? 'mpd'
+				: session.sourceType === 'mp4' || session.sourceType === 'file'
+					? 'mp4'
+					: 'm3u8';
+		const target = new URL(
+			`/api/streaming/session/${session.token}/play.${extension}`,
+			baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+		);
+		if (apiKey) {
+			target.searchParams.set('api_key', apiKey);
+		}
+		return new Response(null, {
+			status: 302,
+			headers: {
+				Location: target.toString(),
+				'Access-Control-Allow-Origin': '*',
+				'Cache-Control': 'no-store'
+			}
+		});
+	}
+
+	/**
+	 * Typed play endpoint after Stremio resolve redirect.
+	 */
+	async renderStremioPlay(
+		session: PlaybackSession,
+		extension: string,
+		baseUrl: string,
+		apiKey: string | undefined,
+		request: Request
+	): Promise<Response> {
+		const ext = extension.toLowerCase().replace(/^\./, '');
+		if (ext === 'mpd' || ext === 'dash') {
+			return this.renderDashManifestResponse(session, baseUrl, apiKey);
+		}
+		if (ext === 'mp4' || ext === 'mkv' || ext === 'bin') {
+			return this.renderDirectResponse(session, request);
+		}
+		return this.renderPlaylistResponse(session, session.entryUrl, baseUrl, apiKey, true);
+	}
+
+	/**
 	 * Serve a DASH source's MPD, rewritten through the session so segments are
 	 * fetched via our proxy (which attaches the signed session headers, e.g.
 	 * CloudFront cookies). Served as application/dash+xml — the content type

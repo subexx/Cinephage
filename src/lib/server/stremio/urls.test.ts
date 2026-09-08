@@ -11,27 +11,29 @@ import {
 } from './urls.js';
 
 describe('stream url builders', () => {
-	it('builds movie session URLs with master.m3u8 for Stremio/Nuvio', () => {
+	it('builds movie resolve URLs for Stremio/Nuvio', () => {
 		expect(buildMovieSessionUrl('https://media.example.com', 603, 'key+1')).toBe(
-			'https://media.example.com/api/streaming/session/movie/603/master.m3u8?api_key=key%2B1'
+			'https://media.example.com/api/streaming/stremio/movie/603?api_key=key%2B1'
 		);
 	});
 
-	it('builds tv session URLs with season, episode, and master.m3u8', () => {
+	it('builds tv resolve URLs with season and episode', () => {
 		expect(buildEpisodeSessionUrl('https://media.example.com', 1399, 1, 2, 'k')).toBe(
-			'https://media.example.com/api/streaming/session/tv/1399/1/2/master.m3u8?api_key=k'
+			'https://media.example.com/api/streaming/stremio/tv/1399/1/2?api_key=k'
 		);
 	});
 
-	it('builds library file URLs with an optional filename hint fragment', () => {
+	it('builds library file URLs with a sniffable filename path segment', () => {
 		expect(buildMovieLibraryFileUrl('https://media.example.com', 'file-1', 'k')).toBe(
-			'https://media.example.com/api/streaming/library/movie/file-1?api_key=k'
+			'https://media.example.com/api/streaming/library/movie/file-1/video.mkv?api_key=k'
 		);
 		expect(
 			buildMovieLibraryFileUrl('https://media.example.com', 'file-1', 'k', 'Movie.mkv')
-		).toBe('https://media.example.com/api/streaming/library/movie/file-1?api_key=k#Movie.mkv');
+		).toBe(
+			'https://media.example.com/api/streaming/library/movie/file-1/Movie.mkv?api_key=k'
+		);
 		expect(buildEpisodeLibraryFileUrl('https://media.example.com', 'file-2', 'k')).toBe(
-			'https://media.example.com/api/streaming/library/episode/file-2?api_key=k'
+			'https://media.example.com/api/streaming/library/episode/file-2/video.mkv?api_key=k'
 		);
 	});
 
