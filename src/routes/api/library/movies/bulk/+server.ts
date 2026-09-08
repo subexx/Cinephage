@@ -24,6 +24,7 @@ import { getLibraryEntityService } from '$lib/server/library/LibraryEntityServic
 import { ValidationError } from '$lib/errors';
 import { logger } from '$lib/logging';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents.js';
+import { movieDesiredQualitiesOrDefault } from '$lib/shared/movie-desired-qualities.js';
 
 interface BulkAddResult {
 	added: number;
@@ -157,6 +158,8 @@ export const POST: RequestHandler = async ({ request }) => {
 						libraryId: owningLibrary.id,
 						rootFolderId,
 						scoringProfileId: effectiveProfileId,
+						desiredQualities: movieDesiredQualitiesOrDefault(null),
+						originalLanguage: movieDetails.original_language ?? null,
 						monitored,
 						minimumAvailability,
 						availabilityDelay,

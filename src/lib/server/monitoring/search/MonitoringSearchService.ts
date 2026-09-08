@@ -34,13 +34,21 @@ import { scoreRelease, isUpgrade } from '$lib/server/scoring/scorer.js';
 import type { ScoringProfile } from '$lib/server/scoring/types.js';
 import { qualityFilter } from '$lib/server/quality';
 import { resolveMovieMultiQuality } from '$lib/server/quality/movie-buckets.js';
-import { getFilledResolutions } from '$lib/server/quality/buckets.js';
+import {
+	getFilledResolutions,
+	isBelowDesiredFallback,
+	shouldGrabBelowDesiredFallback
+} from '$lib/server/quality/buckets.js';
 import type { Resolution } from '$lib/server/indexers/parser/types.js';
 import { TaskCancelledException } from '$lib/server/tasks/TaskCancelledException.js';
 import {
 	getMovieSearchTitles,
 	getSeriesSearchTitles
 } from '$lib/server/services/AlternateTitleService.js';
+import {
+	isBetterAudioRelease,
+	orderReleasesByPreferredAudio
+} from '$lib/shared/preferred-language.js';
 
 // Specifications
 import {
@@ -781,13 +789,17 @@ export class MonitoringSearchService {
 
 			if (searchResult.releases.length === 0) continue;
 
+			const rankedReleases = orderReleasesByPreferredAudio(
+				searchResult.releases,
+				movie.originalLanguage
+			);
 			const blocklistSpec = new ReleaseBlocklistSpecification({ movieId: movie.id });
 			const filledSoFar = new Set<Resolution>(filled);
 
 			for (const targetResolution of unfilled) {
-				// Find the best-scoring release matching this bucket that isn't blocklisted
-				let bestRelease: (typeof searchResult.releases)[number] | undefined;
-				for (const release of searchResult.releases) {
+				// Find the best-scoring preferred-audio release matching this bucket
+				let bestRelease: (typeof rankedReleases)[number] | undefined;
+				for (const release of rankedReleases) {
 					if (release.parsed.resolution !== targetResolution) continue;
 					const bc: ReleaseCandidate = {
 						title: release.title,
@@ -797,7 +809,16 @@ export class MonitoringSearchService {
 					};
 					const bl = await blocklistSpec.isSatisfied(bc);
 					if (!bl.accepted) continue;
-					if (!bestRelease || (release.totalScore ?? 0) > (bestRelease.totalScore ?? 0)) {
+					if (
+						!bestRelease ||
+						isBetterAudioRelease(
+							release.parsed.languages,
+							release.totalScore ?? 0,
+							bestRelease.parsed.languages,
+							bestRelease.totalScore ?? 0,
+							movie.originalLanguage
+						)
+					) {
 						bestRelease = release;
 					}
 				}
@@ -820,6 +841,39 @@ export class MonitoringSearchService {
 						grabbedRelease: grabResult.releaseName,
 						queueItemId: grabResult.queueItemId
 					});
+				}
+			}
+
+			if (shouldGrabBelowDesiredFallback(effective, [...filledSoFar], files.length > 0)) {
+				for (const release of rankedReleases) {
+					const res = release.parsed.resolution as Resolution | undefined;
+					if (!isBelowDesiredFallback(res, effective)) continue;
+					const bc: ReleaseCandidate = {
+						title: release.title,
+						score: release.totalScore ?? 0,
+						infoHash: release.infoHash,
+						indexerId: release.indexerId
+					};
+					const bl = await blocklistSpec.isSatisfied(bc);
+					if (!bl.accepted) continue;
+					const grabResult = await this.grabRelease(release, {
+						mediaType: 'movie',
+						movieId: movie.id,
+						isAutomatic: true
+					});
+					if (grabResult.success) {
+						results.push({
+							itemId: movie.id,
+							itemType: 'movie',
+							title: movie.title,
+							searched: true,
+							releasesFound: searchResult.releases.length,
+							grabbed: true,
+							grabbedRelease: grabResult.releaseName,
+							queueItemId: grabResult.queueItemId
+						});
+						break;
+					}
 				}
 			}
 

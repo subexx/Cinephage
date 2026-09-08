@@ -256,6 +256,7 @@ export const POST: RequestHandler = async (event) => {
 				libraryId: owningLibrary.id,
 				rootFolderId,
 				scoringProfileId: effectiveProfileId,
+				originalLanguage: tvDetails.original_language ?? null,
 				monitored,
 				monitorNewItems,
 				monitorSpecials,

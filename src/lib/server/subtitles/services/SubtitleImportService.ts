@@ -164,12 +164,6 @@ async function searchForMovie(
 		return result;
 	}
 
-	const languages = profile.languages.map((l) => l.code);
-	if (languages.length === 0) {
-		return result;
-	}
-
-	// Check which subtitles are missing
 	const status = await profileService.getMovieSubtitleStatus(movieId);
 	if (status.satisfied || status.missing.length === 0) {
 		logger.debug(
@@ -181,6 +175,8 @@ async function searchForMovie(
 		);
 		return result;
 	}
+
+	const languages = status.missing.map((item) => item.code);
 
 	// Search for subtitles
 	const searchResults = await searchService.searchForMovie(movieId, languages);
@@ -380,12 +376,6 @@ async function searchForEpisode(
 		return result;
 	}
 
-	const languages = profile.languages.map((l) => l.code);
-	if (languages.length === 0) {
-		return result;
-	}
-
-	// Check which subtitles are missing
 	const status = await profileService.getEpisodeSubtitleStatus(episodeId);
 	if (status.satisfied || status.missing.length === 0) {
 		logger.debug(
@@ -399,6 +389,8 @@ async function searchForEpisode(
 		);
 		return result;
 	}
+
+	const languages = status.missing.map((item) => item.code);
 
 	// Search for subtitles
 	const searchResults = await searchService.searchForEpisode(episodeId, languages);

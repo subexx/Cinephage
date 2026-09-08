@@ -7,6 +7,11 @@ import {
 	isMultiQualityMode,
 	selectBestExistingFileInBucket
 } from '$lib/server/quality/buckets.js';
+import { ReleaseParser } from '$lib/server/indexers/parser/ReleaseParser.js';
+import { RESOLUTION_ORDER, type Resolution } from '$lib/server/indexers/parser/types.js';
+import { isEnglishAudioUpgrade } from '$lib/shared/preferred-language.js';
+
+const parser = new ReleaseParser();
 
 export class UpgradeStage implements DecisionStage<GrabDecisionContext> {
 	name = 'upgrade';
@@ -69,6 +74,9 @@ export class UpgradeStage implements DecisionStage<GrabDecisionContext> {
 
 	private evaluateSingleFile(ctx: GrabDecisionContext, existing: ExistingFile): StageResult {
 		const { release, profile, options } = ctx;
+
+		const languageUpgrade = this.evaluateEnglishLanguageUpgrade(ctx, existing);
+		if (languageUpgrade) return languageUpgrade;
 
 		const isStreamingExisting = existing.relativePath.endsWith('.strm');
 		const isStreamingCandidate = release.protocol === 'streaming';
@@ -195,6 +203,41 @@ export class UpgradeStage implements DecisionStage<GrabDecisionContext> {
 				upgradeStatus,
 				upgradeStats: { improved, unchanged, downgraded, newEpisodes }
 			}
+		};
+	}
+
+	/**
+	 * Replace an original-language copy when an English release appears at the
+	 * same or higher resolution. English is preferred; original is only a stand-in.
+	 */
+	private evaluateEnglishLanguageUpgrade(
+		ctx: GrabDecisionContext,
+		existing: ExistingFile
+	): StageResult | null {
+		const candidateLangs = parser.parse(ctx.release.title).languages;
+		const existingLangs = parser.parse(existing.sceneName ?? existing.relativePath).languages;
+		if (!isEnglishAudioUpgrade(existingLangs, candidateLangs, ctx.originalLanguage)) {
+			return null;
+		}
+
+		const candidateRes = ctx.computed.scoringResult?.resolution;
+		const existingRes =
+			(existing.quality?.resolution as Resolution | undefined) ??
+			parser.parse(existing.sceneName ?? existing.relativePath).resolution;
+		if (
+			ctx.profile.preventDowngrades &&
+			candidateRes &&
+			existingRes &&
+			existingRes !== 'unknown' &&
+			(RESOLUTION_ORDER[candidateRes] ?? 0) < (RESOLUTION_ORDER[existingRes] ?? 0)
+		) {
+			return null;
+		}
+
+		ctx.computed.upgradeStatus = 'upgrade';
+		return {
+			accepted: true,
+			details: { upgradeStatus: 'upgrade', languageUpgrade: true }
 		};
 	}
 }

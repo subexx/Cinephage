@@ -12,7 +12,7 @@ import { grabService } from '$lib/server/downloads/GrabService.js';
 import type { SearchCriteria } from '$lib/server/indexers/types';
 import type { SearchForEpisodeParams, GrabResult } from './types.js';
 import type { AltTitleRefresher } from './alt-titles.js';
-import { AUTO_GRAB_MIN_SCORE } from './search-utils.js';
+import { AUTO_GRAB_MIN_SCORE, orderReleasesByPreferredAudio } from './search-utils.js';
 
 export async function searchForEpisode(
 	params: SearchForEpisodeParams,
@@ -135,6 +135,11 @@ export async function searchForEpisode(
 			return { success: false, error: 'No suitable releases found' };
 		}
 
+		const rankedReleases = orderReleasesByPreferredAudio(
+			searchResult.releases,
+			seriesData.originalLanguage
+		);
+
 		// If episode has existing file, filter to only upgrades
 		if (hasExistingFile) {
 			logger.info(
@@ -145,7 +150,7 @@ export async function searchForEpisode(
 			);
 
 			// Find the first release that qualifies as an upgrade
-			for (const release of searchResult.releases) {
+			for (const release of rankedReleases) {
 				const grabResult = await grabService.grab({
 					release: {
 						title: release.title,
@@ -191,39 +196,43 @@ export async function searchForEpisode(
 			return { success: false, error: 'No upgrades found - existing file quality is sufficient' };
 		}
 
-		// No existing file - grab the top-ranked release
-		const bestRelease = searchResult.releases[0];
-		const grabResult = await grabService.grab({
-			release: {
-				title: bestRelease.title,
-				infoHash: bestRelease.infoHash,
-				magnetUrl: bestRelease.magnetUrl,
-				downloadUrl: bestRelease.downloadUrl,
-				indexerId: bestRelease.indexerId,
-				indexerName: bestRelease.indexerName,
-				size: bestRelease.size,
-				protocol: bestRelease.protocol as 'torrent' | 'usenet' | 'streaming' | undefined
-			},
-			target: {
-				type: 'episode' as const,
-				episodeId,
-				seriesId: seriesData.id
-			},
-			options: {
-				force: false,
-				skipBlocklist: false,
-				allowSidegrade: false,
-				isAutomatic: true,
-				isUpgrade: false
-			}
-		});
+		// No existing file - grab the first preferred-audio release that evaluates
+		for (const bestRelease of rankedReleases) {
+			const grabResult = await grabService.grab({
+				release: {
+					title: bestRelease.title,
+					infoHash: bestRelease.infoHash,
+					magnetUrl: bestRelease.magnetUrl,
+					downloadUrl: bestRelease.downloadUrl,
+					indexerId: bestRelease.indexerId,
+					indexerName: bestRelease.indexerName,
+					size: bestRelease.size,
+					protocol: bestRelease.protocol as 'torrent' | 'usenet' | 'streaming' | undefined
+				},
+				target: {
+					type: 'episode' as const,
+					episodeId,
+					seriesId: seriesData.id
+				},
+				options: {
+					force: false,
+					skipBlocklist: false,
+					allowSidegrade: false,
+					isAutomatic: true,
+					isUpgrade: false
+				}
+			});
 
-		return {
-			success: grabResult.success,
-			releaseName: grabResult.success ? bestRelease.title : undefined,
-			queueItemId: grabResult.download?.queueId,
-			error: grabResult.error ?? (grabResult.success ? undefined : grabResult.decision?.reason)
-		};
+			if (grabResult.success) {
+				return {
+					success: true,
+					releaseName: bestRelease.title,
+					queueItemId: grabResult.download?.queueId
+				};
+			}
+		}
+
+		return { success: false, error: 'No releases found that meet upgrade requirements' };
 	} catch (error) {
 		const message = error instanceof Error ? error.message : 'Unknown error';
 		logger.error({ episodeId, err: error }, '[SearchOnAdd] Episode search failed');

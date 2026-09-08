@@ -7,6 +7,7 @@ export { MinimumScoreStage } from './MinimumScoreStage.js';
 export { DuplicateHashStage } from './DuplicateHashStage.js';
 export { BlockedExtensionStage } from './BlockedExtensionStage.js';
 export { UpgradeStage } from './UpgradeStage.js';
+export { AudioLanguageStage } from './AudioLanguageStage.js';
 export type {
 	GrabDecisionContext,
 	GrabDecisionOptions,

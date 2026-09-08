@@ -7,6 +7,7 @@
 	import type { SmartListRecord, SmartListFilters } from '$lib/server/db/schema.js';
 	import type { SmartListCreateRequest } from '$lib/validation/schemas.js';
 	import type { DesiredQuality } from '$lib/types/library.js';
+	import { movieDesiredQualitiesOrDefault } from '$lib/shared/movie-desired-qualities.js';
 	import type { RootFolderBasic as RootFolder } from '$lib/types/downloadClient.js';
 	import FilterBuilder from './FilterBuilder.svelte';
 	import PreviewPanel from './PreviewPanel.svelte';
@@ -90,7 +91,7 @@
 	let autoAddMonitored = $state(true);
 	let wantsSubtitles = $state(true);
 	let languageProfileId = $state('');
-	let desiredQualities = $state<DesiredQuality[]>([]);
+	let desiredQualities = $state<DesiredQuality[]>([...movieDesiredQualitiesOrDefault()]);
 
 	// Sync form state when list prop changes
 	$effect(() => {
@@ -115,7 +116,10 @@
 			autoAddMonitored = list.autoAddMonitored ?? true;
 			wantsSubtitles = list.wantsSubtitles ?? true;
 			languageProfileId = list.languageProfileId ?? '';
-			desiredQualities = (list.desiredQualities as DesiredQuality[] | null) ?? [];
+			desiredQualities =
+				mediaType === 'movie'
+					? movieDesiredQualitiesOrDefault(list.desiredQualities as DesiredQuality[] | null)
+					: ((list.desiredQualities as DesiredQuality[] | null) ?? []);
 		}
 	});
 
@@ -395,7 +399,12 @@
 				autoAddMonitored,
 				wantsSubtitles,
 				languageProfileId: languageProfileId || undefined,
-				desiredQualities: mediaType === 'movie' && desiredQualities.length > 0 ? desiredQualities : null
+				desiredQualities:
+					mediaType === 'movie'
+						? movieDesiredQualitiesOrDefault(desiredQualities)
+						: desiredQualities.length > 0
+							? desiredQualities
+							: null
 			};
 
 			const result = list

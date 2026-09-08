@@ -667,6 +667,8 @@ export const movies = sqliteTable(
 		// resolution tier; upgrades only replace the same-resolution file.
 		// null/empty/<2 = single-quality mode (current behavior).
 		desiredQualities: text('desired_qualities', { mode: 'json' }).$type<DesiredQuality[]>(),
+		// TMDB original_language (ISO 639-1) for English-then-original audio grabs
+		originalLanguage: text('original_language'),
 		// Language profile for subtitle preferences (deferred reference - languageProfiles defined later)
 		languageProfileId: text('language_profile_id'),
 		// Whether to monitor for upgrades
@@ -802,6 +804,8 @@ export const series = sqliteTable(
 		}),
 		// Language profile for subtitle preferences (deferred reference - languageProfiles defined later)
 		languageProfileId: text('language_profile_id'),
+		// TMDB original_language (ISO 639-1) for English-then-original audio grabs
+		originalLanguage: text('original_language'),
 		// Whether to monitor for new episodes
 		monitored: integer('monitored', { mode: 'boolean' }).default(true),
 		// How to handle new seasons/episodes added after initial add: 'all' | 'none'

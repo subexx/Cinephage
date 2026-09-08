@@ -678,6 +678,38 @@ describe('SearchOnAddService.searchForMovie multi-quality buckets', () => {
 		expect(grabbedTitles).toContain('Movie.2024.1080p.WEB-GROUP');
 	});
 
+	it('grabs a lower-resolution stand-in when 4K and 1080p are unavailable', async () => {
+		mocks.moviesFindFirst.mockResolvedValue({
+			desiredQualities: ['2160p', '1080p'],
+			scoringProfileId: null
+		});
+		mocks.scoringProfilesFindFirst.mockResolvedValue(null);
+		mocks.movieFilesFindMany.mockResolvedValue([]);
+		mocks.searchEnhanced.mockResolvedValue({
+			releases: [
+				createSearchRelease({
+					title: 'Movie.2024.720p.WEB-GROUP',
+					infoHash: 'hash-720p',
+					downloadUrl: 'stream://movie/1-720p',
+					parsed: { resolution: '720p', source: 'webdl', codec: 'h264', hdr: null }
+				})
+			],
+			rejectedCount: 0
+		});
+		mocks.grab.mockResolvedValue(createGrabResponse());
+
+		const result = await searchOnAdd.searchForMovie({
+			movieId: 'movie-1',
+			tmdbId: 228967,
+			title: 'Test Movie',
+			year: 2024
+		});
+
+		expect(result).toMatchObject({ success: true });
+		expect(mocks.grab).toHaveBeenCalledTimes(1);
+		expect(mocks.grab.mock.calls[0][0].release.title).toBe('Movie.2024.720p.WEB-GROUP');
+	});
+
 	it('routes to upgrades when all desired buckets are filled for a multi-quality movie', async () => {
 		mocks.moviesFindFirst.mockResolvedValue({
 			desiredQualities: ['2160p', '1080p'],

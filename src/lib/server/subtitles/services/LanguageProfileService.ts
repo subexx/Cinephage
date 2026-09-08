@@ -23,6 +23,7 @@ import { createChildLogger } from '$lib/logging';
 const logger = createChildLogger({ logDomain: 'subtitles' as const });
 import type { SubtitleStatus, LanguageCode } from '../types';
 import { normalizeLanguageCode } from '$lib/shared/languages';
+import { resolveConcreteLanguage } from '$lib/shared/preferred-language.js';
 
 /** Language profile with all fields */
 export interface LanguageProfile {
@@ -256,13 +257,14 @@ export class LanguageProfileService {
 			return { satisfied: true, missing: [], existing: [] };
 		}
 
-		// Get external subtitles
+		const [movie] = await db.select().from(movies).where(eq(movies.id, movieId)).limit(1);
+
 		const existingSubtitles = await db
 			.select()
 			.from(subtitles)
 			.where(eq(subtitles.movieId, movieId));
 
-		return this.calculateStatus(profile, existingSubtitles);
+		return this.calculateStatus(profile, existingSubtitles, movie?.originalLanguage);
 	}
 
 	/**
@@ -289,7 +291,13 @@ export class LanguageProfileService {
 			.from(subtitles)
 			.where(eq(subtitles.episodeId, episodeId));
 
-		return this.calculateStatus(profile, existingSubtitles);
+		const [show] = await db
+			.select({ originalLanguage: series.originalLanguage })
+			.from(series)
+			.where(eq(series.id, episode.seriesId))
+			.limit(1);
+
+		return this.calculateStatus(profile, existingSubtitles, show?.originalLanguage);
 	}
 
 	/**
@@ -312,6 +320,12 @@ export class LanguageProfileService {
 		// Get all episodes for this series
 		const seriesEpisodes = await db.select().from(episodes).where(eq(episodes.seriesId, seriesId));
 
+		const show = await db
+			.select({ originalLanguage: series.originalLanguage })
+			.from(series)
+			.where(eq(series.id, seriesId))
+			.limit(1);
+
 		const missing: string[] = [];
 
 		for (const episode of seriesEpisodes) {
@@ -320,7 +334,7 @@ export class LanguageProfileService {
 				.from(subtitles)
 				.where(eq(subtitles.episodeId, episode.id));
 
-			const status = this.calculateStatus(profile, existingSubtitles);
+			const status = this.calculateStatus(profile, existingSubtitles, show[0]?.originalLanguage);
 			if (!status.satisfied && status.missing.length > 0) {
 				missing.push(episode.id);
 			}
@@ -356,7 +370,8 @@ export class LanguageProfileService {
 	 */
 	private calculateStatus(
 		profile: LanguageProfile,
-		existingSubtitles: Array<typeof subtitles.$inferSelect>
+		existingSubtitles: Array<typeof subtitles.$inferSelect>,
+		originalLanguage?: string | null
 	): SubtitleStatus {
 		const normalizedExisting = existingSubtitles
 			.filter((sub) => this.isExternalSubtitleRecord(sub))
@@ -378,11 +393,12 @@ export class LanguageProfileService {
 
 		for (let i = 0; i < profile.languages.length; i++) {
 			const langPref = profile.languages[i];
+			const concrete = resolveConcreteLanguage(langPref.code, originalLanguage);
+			if (!concrete) continue;
 
-			// Check if we have this language in external subtitle files
 			const hasExternal = normalizedExisting.some(
 				(sub) =>
-					sub.normalizedLanguage === langPref.code &&
+					sub.normalizedLanguage === concrete &&
 					(sub.isForced ?? false) === langPref.forced &&
 					(!langPref.excludeHi || !(sub.isHearingImpaired ?? false))
 			);
@@ -391,18 +407,16 @@ export class LanguageProfileService {
 
 			if (!hasLanguage) {
 				missing.push({
-					code: langPref.code,
+					code: concrete,
 					forced: langPref.forced,
 					hearingImpaired: langPref.hearingImpaired
 				});
 			}
 
-			// Check cutoff
 			if (langPref.isCutoff && hasLanguage) {
 				cutoffReached = true;
 			}
 
-			// Also check profile cutoff index
 			if (i === profile.cutoffIndex && hasLanguage) {
 				cutoffReached = true;
 			}

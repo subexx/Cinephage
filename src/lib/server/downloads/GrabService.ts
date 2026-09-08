@@ -130,6 +130,7 @@ class GrabServiceImpl {
 			profile: resolved.profile,
 			options,
 			desiredQualities: resolved.desiredQualities,
+			originalLanguage: resolved.originalLanguage,
 			computed: {}
 		};
 
@@ -209,6 +210,7 @@ class GrabServiceImpl {
 		let seasonNumber: number | undefined;
 		let mediaType: 'movie' | 'tv' = 'movie';
 		let movieDesiredQualities: ResolvedContext['desiredQualities'];
+		let originalLanguage: string | null | undefined;
 
 		if (target.type === 'movie') {
 			const movie = await db.query.movies.findFirst({ where: eq(movies.id, target.movieId) });
@@ -218,6 +220,7 @@ class GrabServiceImpl {
 			mediaPath = movie.path ?? undefined;
 			movieId = movie.id;
 			movieDesiredQualities = movie.desiredQualities ?? undefined;
+			originalLanguage = movie.originalLanguage ?? null;
 		} else {
 			seriesId = 'seriesId' in target ? target.seriesId : undefined;
 			const show = seriesId
@@ -228,6 +231,7 @@ class GrabServiceImpl {
 			rootFolderId = show?.rootFolderId ?? null;
 			mediaPath = show?.path ?? undefined;
 			mediaType = 'tv';
+			originalLanguage = show?.originalLanguage ?? null;
 
 			if (target.type === 'episode') {
 				episodeIds = [target.episodeId];
@@ -274,7 +278,8 @@ class GrabServiceImpl {
 			rootFolderPath,
 			mediaPath,
 			seriesPath: mediaType === 'tv' ? mediaPath : undefined,
-			desiredQualities: movieDesiredQualities
+			desiredQualities: movieDesiredQualities,
+			originalLanguage
 		};
 	}
 

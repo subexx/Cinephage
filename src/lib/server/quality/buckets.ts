@@ -76,6 +76,45 @@ export function unfilledBuckets(effective: Resolution[], filled: Resolution[]): 
 	return effective.filter((r) => !filledSet.has(r));
 }
 
+/** Lowest desired resolution (e.g. 1080p when keeping 2160p + 1080p). */
+export function lowestDesiredBucket(effective: Resolution[]): Resolution | undefined {
+	let lowest: Resolution | undefined;
+	let lowestOrd = Infinity;
+	for (const resolution of effective) {
+		const ord = RESOLUTION_ORDER[resolution] ?? Infinity;
+		if (ord < lowestOrd) {
+			lowestOrd = ord;
+			lowest = resolution;
+		}
+	}
+	return lowest;
+}
+
+/** True when this resolution is strictly below every desired bucket (stand-in copy). */
+export function isBelowDesiredFallback(
+	resolution: Resolution | undefined,
+	effective: Resolution[]
+): boolean {
+	if (!resolution || resolution === 'unknown' || effective.length === 0) return false;
+	const lowest = lowestDesiredBucket(effective);
+	if (!lowest) return false;
+	return (RESOLUTION_ORDER[resolution] ?? -1) < (RESOLUTION_ORDER[lowest] ?? 0);
+}
+
+/**
+ * Grab a below-tier stand-in only when the movie has no file yet and none of
+ * the desired buckets have been filled.
+ */
+export function shouldGrabBelowDesiredFallback(
+	effective: Resolution[],
+	filledDesired: Resolution[],
+	hasAnyFile: boolean
+): boolean {
+	if (!isMultiQualityMode(effective) || hasAnyFile) return false;
+	const desired = new Set(effective);
+	return !filledDesired.some((resolution) => desired.has(resolution));
+}
+
 /**
  * Best existing file *within a single resolution bucket*. Ranking mirrors
  * MonitoringSearchService.selectBestExistingFile: prefers downloaded (non-.strm)
@@ -204,11 +243,26 @@ export function redundantFileIds<T extends BucketFile>(
  */
 export function replaceIdsForImport(
 	existingFiles: BucketFile[],
-	options: { newResolution?: Resolution; multiQuality: boolean; isUpgrade: boolean }
+	options: {
+		newResolution?: Resolution;
+		multiQuality: boolean;
+		isUpgrade: boolean;
+		effective?: Resolution[];
+	}
 ): string[] {
-	const { newResolution, multiQuality, isUpgrade } = options;
+	const { newResolution, multiQuality, isUpgrade, effective } = options;
 	if (multiQuality) {
-		return fileIdsToReplace(existingFiles, newResolution, true);
+		const sameBucket = fileIdsToReplace(existingFiles, newResolution, true);
+		const lowest = effective ? lowestDesiredBucket(effective) : undefined;
+		const replaceStandIn =
+			newResolution && lowest && newResolution === lowest && effective
+				? existingFiles
+						.filter((file) =>
+							isBelowDesiredFallback(file.quality?.resolution as Resolution | undefined, effective)
+						)
+						.map((file) => file.id)
+				: [];
+		return [...new Set([...sameBucket, ...replaceStandIn])];
 	}
 	return isUpgrade ? existingFiles.map((f) => f.id) : [];
 }

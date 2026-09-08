@@ -26,6 +26,7 @@ import { isLikelyAnimeMedia } from '$lib/shared/anime-classification.js';
 import { fetchAndStoreMovieAlternateTitles } from '$lib/server/services/AlternateTitleService.js';
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents.js';
+import { movieDesiredQualitiesOrDefault } from '$lib/shared/movie-desired-qualities.js';
 
 const trackSchema = z.object({
 	rootFolderId: z.string().min(1),
@@ -166,6 +167,8 @@ export const POST: RequestHandler = async (event) => {
 					libraryId: owningLibrary.id,
 					rootFolderId,
 					scoringProfileId: effectiveProfileId,
+					desiredQualities: movieDesiredQualitiesOrDefault(null),
+					originalLanguage: movieDetails.original_language ?? null,
 					monitored,
 					minimumAvailability: 'released',
 					availabilityDelay: 0,

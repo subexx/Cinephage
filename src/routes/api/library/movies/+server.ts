@@ -23,7 +23,7 @@ import { isLikelyAnimeMedia } from '$lib/shared/anime-classification.js';
 import { fetchAndStoreMovieAlternateTitles } from '$lib/server/services/AlternateTitleService.js';
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { ValidationError, isAppError } from '$lib/errors';
-import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents.js';
+import { movieDesiredQualitiesOrDefault } from '$lib/shared/movie-desired-qualities.js';
 import { logger } from '$lib/logging';
 import { requireAuth } from '$lib/server/auth/authorization.js';
 
@@ -250,7 +250,8 @@ export const POST: RequestHandler = async (event) => {
 				libraryId: owningLibrary.id,
 				rootFolderId,
 				scoringProfileId: effectiveProfileId,
-				desiredQualities: desiredQualities ?? null,
+				desiredQualities: movieDesiredQualitiesOrDefault(desiredQualities),
+				originalLanguage: movieDetails.original_language ?? null,
 				monitored,
 				minimumAvailability,
 				availabilityDelay,

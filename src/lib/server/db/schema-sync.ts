@@ -140,8 +140,11 @@ import {
  * Version 133: Add import_failed and backfill canonical info hashes on download queue rows
  * Version 134: Store canonical info hashes on download history rows
  * Version 135: Deduplicate active download queue rows by client and info hash
+ * Version 136: Add storage_items file_id indexes
+ * Version 137: Add desired_qualities to smart_lists
+ * Version 138: Default movie 4K+1080p copies, original_language columns, English+Original language profile
  */
-export const CURRENT_SCHEMA_VERSION = 135;
+export const CURRENT_SCHEMA_VERSION = 138;
 
 export const SYSTEM_LIBRARY_SEEDS = [
 	{
@@ -548,6 +551,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"root_folder_id" text REFERENCES "root_folders"("id") ON DELETE SET NULL,
 		"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
 		"desired_qualities" text,
+		"original_language" text,
 		"language_profile_id" text,
 		"monitored" integer DEFAULT true,
 		"minimum_availability" text DEFAULT 'released',
@@ -604,6 +608,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"root_folder_id" text REFERENCES "root_folders"("id") ON DELETE SET NULL,
 		"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
 		"language_profile_id" text,
+		"original_language" text,
 		"monitored" integer DEFAULT true,
 		"monitor_new_items" text DEFAULT 'all',
 		"monitor_specials" integer DEFAULT false,

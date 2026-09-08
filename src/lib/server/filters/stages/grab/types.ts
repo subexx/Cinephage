@@ -16,7 +16,8 @@ export type RejectionType =
 	| 'not_upgrade'
 	| 'upgrades_disabled'
 	| 'pending_delay'
-	| 'missing_required_format';
+	| 'missing_required_format'
+	| 'wrong_language';
 
 export interface ReleaseInfo {
 	title: string;
@@ -86,6 +87,8 @@ export interface GrabDecisionContext {
 	options: GrabDecisionOptions;
 	/** Per-movie desired qualities (multi-quality mode). Movies only. */
 	desiredQualities?: Resolution[];
+	/** TMDB original language (ISO 639-1), used for English-then-original audio. */
+	originalLanguage?: string | null;
 	computed: {
 		scoringResult?: ScoringResult;
 		candidateScore?: number;

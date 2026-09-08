@@ -226,18 +226,18 @@ export class StreamingHandler {
 
 		// Resolve multi-quality context so a streaming grab only replaces the file
 		// in the same resolution bucket, never the other tiers.
-		const { multiQuality } = await resolveMovieMultiQuality(
+		const { multiQuality, effective } = await resolveMovieMultiQuality(
 			movie.desiredQualities,
 			movie.scoringProfileId
 		);
 		const newResolution = quality.resolution as Resolution | undefined;
 
-		if (isUpgrade) {
-			await this.deleteExistingMovieFiles(movieId, movie.rootFolder.path, movie.path, {
-				multiQuality,
-				newResolution
-			});
-		}
+		await this.deleteExistingMovieFiles(movieId, movie.rootFolder.path, movie.path, {
+			multiQuality,
+			newResolution,
+			effective,
+			isUpgrade: isUpgrade ?? false
+		});
 
 		const fileId = randomUUID();
 		await db.insert(movieFiles).values({
@@ -662,19 +662,23 @@ export class StreamingHandler {
 		movieId: string,
 		rootFolderPath: string,
 		moviePath: string,
-		options?: { multiQuality?: boolean; newResolution?: Resolution }
+		options?: {
+			multiQuality?: boolean;
+			newResolution?: Resolution;
+			effective?: Resolution[];
+			isUpgrade?: boolean;
+		}
 	): Promise<void> {
 		const existingFiles = await db.query.movieFiles.findMany({
 			where: eq(movieFiles.movieId, movieId)
 		});
 
-		// This is only invoked on upgrade; in multi-quality mode only the file(s)
-		// in the same resolution bucket are replaced, other tiers are preserved.
 		const replaceIds = new Set(
 			replaceIdsForImport(existingFiles, {
 				newResolution: options?.newResolution,
 				multiQuality: options?.multiQuality ?? false,
-				isUpgrade: true
+				isUpgrade: options?.isUpgrade ?? false,
+				effective: options?.effective
 			})
 		);
 

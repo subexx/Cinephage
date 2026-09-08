@@ -1118,13 +1118,13 @@ export class ImportService extends EventEmitter {
 		// In multi-quality mode, only the file(s) in the SAME resolution bucket as
 		// the new file are replaced; other tiers are preserved. Single-quality mode
 		// keeps the existing behavior (replace all on upgrade).
-		const { multiQuality } = await resolveMovieMultiQuality(
+		const { multiQuality, effective } = await resolveMovieMultiQuality(
 			movie.desiredQualities,
 			movie.scoringProfileId
 		);
 		const newResolution = importedMetadata.quality?.resolution as Resolution | undefined;
 		const replaceIdSet = new Set(
-			replaceIdsForImport(existingFiles, { newResolution, multiQuality, isUpgrade })
+			replaceIdsForImport(existingFiles, { newResolution, multiQuality, isUpgrade, effective })
 		);
 		replaceIdSet.delete(fileId); // never the just-imported file
 

@@ -15,6 +15,7 @@ import { MinimumScoreStage } from './stages/grab/MinimumScoreStage.js';
 import { DuplicateHashStage } from './stages/grab/DuplicateHashStage.js';
 import { MediaOccupancyStage } from './stages/grab/MediaOccupancyStage.js';
 import { BlockedExtensionStage } from './stages/grab/BlockedExtensionStage.js';
+import { AudioLanguageStage } from './stages/grab/AudioLanguageStage.js';
 import { UpgradeStage } from './stages/grab/UpgradeStage.js';
 import { DelayStage } from './stages/grab/DelayStage.js';
 import { RequiredFormatsStage } from './stages/grab/RequiredFormatsStage.js';
@@ -31,6 +32,7 @@ export class GrabDecisionPipeline {
 		new DuplicateHashStage(),
 		new MediaOccupancyStage(),
 		new BlockedExtensionStage(),
+		new AudioLanguageStage(),
 		new UpgradeStage(),
 		new DelayStage()
 	];
@@ -82,6 +84,7 @@ export class GrabDecisionPipeline {
 			duplicateHash: 'duplicate_hash',
 			mediaOccupancy: 'media_occupied',
 			blockedExtension: 'blocked_extension',
+			audioLanguage: 'wrong_language',
 			upgrade: 'not_upgrade',
 			delay: 'pending_delay'
 		};

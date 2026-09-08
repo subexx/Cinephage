@@ -136,11 +136,13 @@ export const SUPPORTED_LANGUAGES: readonly LanguageDefinition[] = [
 /**
  * All language codes including variants, for dropdown/select options
  */
-export const ALL_LANGUAGE_OPTIONS: readonly { code: string; name: string }[] =
-	SUPPORTED_LANGUAGES.flatMap((lang) => [
+export const ALL_LANGUAGE_OPTIONS: readonly { code: string; name: string }[] = [
+	{ code: 'original', name: 'Original' },
+	...SUPPORTED_LANGUAGES.flatMap((lang) => [
 		{ code: lang.code, name: lang.name },
 		...(lang.variants ?? [])
-	]);
+	])
+];
 
 /**
  * Set of all valid ISO 639-1 language codes for quick validation
@@ -199,6 +201,7 @@ const LANGUAGE_ALIASES: Record<string, string> = {
  */
 export function isValidLanguageCode(code: string): boolean {
 	const lower = code.toLowerCase();
+	if (lower === 'original' || lower === 'orig') return true;
 	return VALID_LANGUAGE_CODES.has(lower) || lower in LANGUAGE_ALIASES;
 }
 
@@ -233,5 +236,6 @@ export function normalizeLanguageCode(code: string): string {
  */
 export function getLanguageName(code: string): string {
 	const normalized = normalizeLanguageCode(code);
+	if (normalized === 'original' || normalized === 'orig') return 'Original';
 	return LANGUAGE_CODE_TO_NAME.get(normalized) ?? code.toUpperCase();
 }

@@ -7,12 +7,13 @@ import { evaluateIndexerSearchAvailability } from '$lib/server/indexers/search/a
 import { grabService } from '$lib/server/downloads/GrabService.js';
 import { logger } from '$lib/logging/index.js';
 import { db } from '$lib/server/db/index.js';
-import { episodes } from '$lib/server/db/schema.js';
+import { episodes, series } from '$lib/server/db/schema.js';
 import { and, eq, ne } from 'drizzle-orm';
 import type { SearchForSeriesParams, GrabResult, SearchCriteria } from './types.js';
 import type { AltTitleRefresher } from './alt-titles.js';
+import { AUTO_GRAB_MIN_SCORE, orderReleasesByPreferredAudio } from './search-utils.js';
 
-export const AUTO_GRAB_MIN_SCORE = 0;
+export { AUTO_GRAB_MIN_SCORE };
 
 export async function searchForSeries(
 	params: SearchForSeriesParams,
@@ -106,6 +107,15 @@ export async function searchForSeries(
 			return { success: false, error: 'No suitable releases found' };
 		}
 
+		const seriesRow = await db.query.series.findFirst({
+			where: eq(series.id, seriesId),
+			columns: { originalLanguage: true }
+		});
+		const rankedReleases = orderReleasesByPreferredAudio(
+			searchResult.releases,
+			seriesRow?.originalLanguage
+		);
+
 		if (
 			monitorType === 'future' ||
 			monitorType === 'missing' ||
@@ -139,7 +149,7 @@ export async function searchForSeries(
 			return { success: false, error: 'Series has no missing episodes to search' };
 		}
 
-		for (const release of searchResult.releases) {
+		for (const release of rankedReleases) {
 			const grabResult = await grabService.grab({
 				release: {
 					title: release.title,

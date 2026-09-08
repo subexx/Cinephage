@@ -21,6 +21,7 @@ import { createChildLogger } from '$lib/logging';
 import { getEffectiveAnimeRootFolderEnforcement } from './anime-root-enforcement-settings.js';
 import { evaluateIndexerSearchAvailability } from '$lib/server/indexers/search/availability.js';
 import { getIndexerManager } from '$lib/server/indexers/IndexerManager.js';
+import { ENGLISH_ORIGINAL_PROFILE_ID } from '$lib/shared/preferred-language.js';
 
 const logger = createChildLogger({ logDomain: 'scans' as const });
 
@@ -162,6 +163,15 @@ export async function getLanguageProfileId(
 
 	if (!wantsSubtitles) {
 		return null;
+	}
+
+	const [englishOriginal] = await db
+		.select({ id: languageProfiles.id })
+		.from(languageProfiles)
+		.where(eq(languageProfiles.id, ENGLISH_ORIGINAL_PROFILE_ID))
+		.limit(1);
+	if (englishOriginal) {
+		return englishOriginal.id;
 	}
 
 	const [defaultLanguageProfile] = await db

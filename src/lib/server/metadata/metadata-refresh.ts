@@ -54,7 +54,7 @@ export async function refreshMovieMetadata(movieId: string): Promise<void> {
 		const updateData: Record<string, unknown> = {};
 
 		if (typeof d.title === 'string') updateData.title = d.title;
-		if (typeof d.original_title === 'string') updateData.originalTitle = d.original_title;
+		if (typeof d.original_language === 'string') updateData.originalLanguage = d.original_language;
 		if (typeof d.overview === 'string') updateData.overview = d.overview;
 		if (typeof d.poster_path === 'string') updateData.posterPath = d.poster_path;
 		if (typeof d.backdrop_path === 'string') updateData.backdropPath = d.backdrop_path;
@@ -112,7 +112,7 @@ export async function refreshSeriesMetadata(seriesId: string): Promise<void> {
 		const updateData: Record<string, unknown> = {};
 
 		if (typeof d.name === 'string') updateData.title = d.name;
-		if (typeof d.original_name === 'string') updateData.originalTitle = d.original_name;
+		if (typeof d.original_language === 'string') updateData.originalLanguage = d.original_language;
 		if (typeof d.overview === 'string') updateData.overview = d.overview;
 		if (typeof d.poster_path === 'string') updateData.posterPath = d.poster_path;
 		if (typeof d.backdrop_path === 'string') updateData.backdropPath = d.backdrop_path;

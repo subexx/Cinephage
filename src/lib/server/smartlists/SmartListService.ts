@@ -40,6 +40,8 @@ import { NamingService, type MediaNamingInfo } from '$lib/server/library/naming/
 import { namingSettingsService } from '$lib/server/library/naming/NamingSettingsService.js';
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { getBlockedTmdbIdSet } from '$lib/server/library/status.js';
+import { movieDesiredQualitiesOrDefault } from '$lib/shared/movie-desired-qualities.js';
+import { ENGLISH_ORIGINAL_PROFILE_ID } from '$lib/shared/preferred-language.js';
 import type {
 	CreateSmartListInput,
 	UpdateSmartListInput,
@@ -113,8 +115,11 @@ export class SmartListService {
 				autoAddMonitored: input.autoAddMonitored ?? true,
 				minimumAvailability: input.minimumAvailability ?? 'released',
 				wantsSubtitles: input.wantsSubtitles ?? true,
-				languageProfileId: input.languageProfileId,
-				desiredQualities: input.desiredQualities ?? null,
+				languageProfileId: input.languageProfileId ?? ENGLISH_ORIGINAL_PROFILE_ID,
+				desiredQualities:
+					input.mediaType === 'movie'
+						? movieDesiredQualitiesOrDefault(input.desiredQualities)
+						: (input.desiredQualities ?? null),
 				refreshIntervalHours: input.refreshIntervalHours ?? 24,
 				enabled: input.enabled ?? true,
 				listSourceType,
@@ -877,7 +882,8 @@ export class SmartListService {
 						libraryId: owningLibrary.id,
 						rootFolderId: list.rootFolderId,
 						scoringProfileId,
-						desiredQualities: list.desiredQualities ?? null,
+						desiredQualities: movieDesiredQualitiesOrDefault(list.desiredQualities),
+						originalLanguage: movieDetails.original_language ?? null,
 						monitored,
 						minimumAvailability: list.minimumAvailability ?? 'released',
 						hasFile: false,
@@ -984,6 +990,7 @@ export class SmartListService {
 						libraryId: owningLibrary.id,
 						rootFolderId: list.rootFolderId,
 						scoringProfileId,
+						originalLanguage: seriesDetails.original_language ?? null,
 						monitored,
 						seasonFolder: true,
 						seriesType: 'standard',
@@ -1507,7 +1514,8 @@ export class SmartListService {
 						libraryId: owningLibrary.id,
 						rootFolderId: list.rootFolderId!,
 						scoringProfileId,
-						desiredQualities: list.desiredQualities ?? null,
+						desiredQualities: movieDesiredQualitiesOrDefault(list.desiredQualities),
+						originalLanguage: movieDetails.original_language ?? null,
 						monitored,
 						minimumAvailability: list.minimumAvailability ?? 'released',
 						hasFile: false,
@@ -1670,6 +1678,7 @@ export class SmartListService {
 						libraryId: owningLibrary.id,
 						rootFolderId: list.rootFolderId!,
 						scoringProfileId,
+						originalLanguage: seriesDetails.original_language ?? null,
 						monitored,
 						seasonFolder: true,
 						seriesType: 'standard',

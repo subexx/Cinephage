@@ -52,6 +52,8 @@ export interface ResolvedContext {
 	seriesPath?: string;
 	/** Per-movie desired qualities (multi-quality mode). Movies only. */
 	desiredQualities?: Resolution[];
+	/** TMDB original language for English-then-original audio. */
+	originalLanguage?: string | null;
 }
 
 export interface HandlerResult {
