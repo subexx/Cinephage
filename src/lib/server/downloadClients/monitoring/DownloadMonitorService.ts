@@ -106,7 +106,31 @@ const QUEUE_TOMBSTONE_CLEANUP_INTERVAL_MS = getQueueTombstoneCleanupIntervalMs()
 /**
  * Max import attempts before marking as failed
  */
-const MAX_IMPORT_ATTEMPTS = 10;
+export const MAX_IMPORT_ATTEMPTS = 10;
+
+/**
+ * Import (or usenet article) failures that must stay failed even if the
+ * download client later reports completed/seeding — e.g. SAB history replay.
+ */
+export function isTerminalImportFailure(queueItem: {
+	status?: string | null;
+	importAttempts?: number | null;
+	errorMessage?: string | null;
+	protocol?: string | null;
+	importFailed?: boolean | null;
+}): boolean {
+	if (queueItem.status !== 'failed') return false;
+	if (queueItem.importFailed) return true;
+	const attempts = queueItem.importAttempts ?? 0;
+	if (attempts >= MAX_IMPORT_ATTEMPTS) return true;
+	const msg = queueItem.errorMessage ?? '';
+	return (
+		msg.startsWith('Import failed after') ||
+		msg.includes('recovery exhausted') ||
+		msg.includes('articles unavailable') ||
+		msg.includes('Unavailable on usenet')
+	);
+}
 
 /**
  * Grace period for completed items during queue-to-history transition.
@@ -1528,6 +1552,21 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 		// Determine new status
 		const newStatus = mapDownloadStatusToQueueStatus(download.status, download.progress);
 
+		// SAB/NZBGet keep completed history forever. Do not treat that as recovery
+		// after we have already given up on importing this release.
+		if (queueItem.status === 'failed' && newStatus !== 'failed' && isTerminalImportFailure(queueItem)) {
+			logger.info(
+				{
+					title: queueItem.title,
+					newStatus,
+					importAttempts: queueItem.importAttempts,
+					protocol: queueItem.protocol
+				},
+				'Ignoring client status recovery for a terminal import/download failure'
+			);
+			return;
+		}
+
 		// Check if this is meaningful change
 		const oldProgress = parseFloat(queueItem.progress || '0');
 		const progressChanged = Math.abs(download.progress - oldProgress) > 0.001;
@@ -1650,6 +1689,12 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 						updatedItem,
 						updatedItem.errorMessage ?? 'Download client reported an error'
 					);
+					if (updatedItem.protocol === 'usenet') {
+						await this.blocklistFailedUsenetRelease(
+							updatedItem,
+							updatedItem.errorMessage ?? 'Usenet download failed'
+						);
+					}
 					this.emit('queue:failed', updatedItem);
 					this.emitSSE('queue:failed', updatedItem);
 					return;
@@ -2940,7 +2985,13 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 						episodeIds: item.episodeIds ?? undefined,
 						reason: 'download_failed',
 						message: errorMessage,
-						expiresInHours: blocklistHours > 0 ? blocklistHours : undefined
+						// Usenet article expiry is permanent; torrent stall duration stays configurable.
+						expiresInHours:
+							item.protocol === 'usenet'
+								? undefined
+								: blocklistHours > 0
+									? blocklistHours
+									: undefined
 					}
 				);
 			} catch (blocklistError) {
@@ -3228,6 +3279,67 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 	async checkBlockedExtensions(): Promise<void> {
 		this.blockedExtensionCheckedHashes.clear();
 		this.scheduleBlockedExtensionCheck(true);
+	}
+
+	private async blocklistFailedUsenetRelease(
+		item: {
+			title: string;
+			infoHash?: string | null;
+			indexerId?: string | null;
+			quality?: { resolution?: string; source?: string; codec?: string; hdr?: string } | null;
+			size?: number | null;
+			protocol?: string | null;
+			movieId?: string | null;
+			seriesId?: string | null;
+			episodeIds?: string[] | null;
+		},
+		errorMessage: string
+	): Promise<void> {
+		try {
+			const { blocklistService } =
+				await import('$lib/server/monitoring/specifications/BlocklistSpecification.js');
+			blocklistService.addFromQueueItem(item, {
+				reason: 'download_failed',
+				message: errorMessage
+			});
+			logger.info(
+				{ title: item.title, protocol: item.protocol },
+				'Permanently blocklisted failed usenet release'
+			);
+		} catch (blocklistError) {
+			logger.warn(
+				{
+					title: item.title,
+					error: blocklistError instanceof Error ? blocklistError.message : String(blocklistError)
+				},
+				'Failed to permanently blocklist usenet release'
+			);
+		}
+
+		try {
+			if (item.movieId) {
+				await db
+					.update(movies)
+					.set({ lastSearchTime: new Date(0).toISOString() })
+					.where(eq(movies.id, item.movieId));
+			}
+			if (item.seriesId && item.episodeIds?.length) {
+				await db
+					.update(episodes)
+					.set({ lastSearchTime: new Date(0).toISOString() })
+					.where(inArray(episodes.id, item.episodeIds));
+			}
+		} catch (error) {
+			logger.warn(
+				{
+					movieId: item.movieId,
+					seriesId: item.seriesId,
+					title: item.title,
+					error: error instanceof Error ? error.message : String(error)
+				},
+				'Failed to reset search cooldown after usenet failure'
+			);
+		}
 	}
 
 	async markFailed(

@@ -158,4 +158,30 @@ describe('BlocklistService.getBlockedIdentifiers', () => {
 		expect(blockedHashes.size).toBe(0);
 		expect(blockedTitles.size).toBe(0);
 	});
+
+	it('permanently blocklists a usenet release by title without an infoHash', async () => {
+		const id = blocklistService.addFromQueueItem(
+			{
+				title: 'Some.Show.S01E01.1080p.NZB',
+				protocol: 'usenet',
+				movieId: MOVIE_ID,
+				size: 1_000_000
+			},
+			{ reason: 'download_failed', message: 'Articles unavailable' }
+		);
+
+		expect(id).toBeTruthy();
+		const entries = await testDb.db.select().from(blocklist);
+		const entry = entries[0];
+		expect(entry.sourceTitle).toBe('Some.Show.S01E01.1080p.NZB');
+		expect(entry.protocol).toBe('usenet');
+		expect(entry.expiresAt).toBeNull();
+		expect(entry.infoHash).toBeNull();
+
+		const blocked = await blocklistService.isBlocklisted(
+			{ title: 'Some.Show.S01E01.1080p.NZB', protocol: 'usenet' },
+			{ movieId: MOVIE_ID }
+		);
+		expect(blocked.blocked).toBe(true);
+	});
 });

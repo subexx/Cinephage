@@ -1,11 +1,21 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages.js';
 	import { Settings, Zap } from 'lucide-svelte';
+	import { onMount } from 'svelte';
+	import { DesiredQualitiesPicker } from '$lib/components/library';
+	import { getLanguageProfiles } from '$lib/api/subtitles.js';
 	import type { RootFolderBasic as RootFolder } from '$lib/types/downloadClient.js';
+	import type { DesiredQuality } from '$lib/types/library.js';
 
 	interface ScoringProfile {
 		id: string;
 		name: string;
+	}
+
+	interface LanguageProfile {
+		id: string;
+		name: string;
+		isDefault?: boolean;
 	}
 
 	interface Props {
@@ -17,6 +27,9 @@
 		rootFolderId: string;
 		scoringProfileId: string;
 		autoAddMonitored: boolean;
+		wantsSubtitles: boolean;
+		languageProfileId: string;
+		desiredQualities: DesiredQuality[];
 		mediaType: 'movie' | 'tv';
 		rootFolders: RootFolder[];
 		scoringProfiles: ScoringProfile[];
@@ -34,6 +47,9 @@
 		rootFolderId = $bindable(),
 		scoringProfileId = $bindable(),
 		autoAddMonitored = $bindable(),
+		wantsSubtitles = $bindable(),
+		languageProfileId = $bindable(),
+		desiredQualities = $bindable(),
 		mediaType,
 		rootFolders,
 		scoringProfiles,
@@ -41,6 +57,17 @@
 		open = $bindable(false),
 		onToggle
 	}: Props = $props();
+
+	let languageProfiles = $state<LanguageProfile[]>([]);
+
+	onMount(async () => {
+		try {
+			const result = await getLanguageProfiles();
+			languageProfiles = Array.isArray(result) ? result : [];
+		} catch {
+			languageProfiles = [];
+		}
+	});
 
 	const availableRootFolders = $derived(
 		rootFolders.filter((folder) => folder.mediaType === mediaType && !folder.readOnly)
@@ -215,6 +242,40 @@
 							{/each}
 						</select>
 					</div>
+
+					<div class="form-control">
+						<label class="label py-1" for="languageProfile">
+							<span
+								class="label-text text-xs font-medium tracking-wide text-base-content/60 uppercase"
+								>Language profile</span
+							>
+						</label>
+						<select
+							id="languageProfile"
+							bind:value={languageProfileId}
+							class="select-bordered select w-full select-sm"
+						>
+							<option value="">Default</option>
+							{#each languageProfiles as profile (profile.id)}
+								<option value={profile.id}>
+									{profile.name}{profile.isDefault ? ' (default)' : ''}
+								</option>
+							{/each}
+						</select>
+					</div>
+
+					{#if mediaType === 'movie'}
+						<DesiredQualitiesPicker bind:desiredQualities />
+					{/if}
+
+					<label class="flex cursor-pointer items-center gap-3">
+						<input
+							type="checkbox"
+							bind:checked={wantsSubtitles}
+							class="checkbox checkbox-sm checkbox-primary"
+						/>
+						<span class="label-text">Download subtitles</span>
+					</label>
 
 					<label class="flex cursor-pointer items-center gap-3">
 						<input

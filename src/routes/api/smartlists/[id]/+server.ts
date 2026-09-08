@@ -73,6 +73,10 @@ const updateSchema = z.object({
 	minimumAvailability: z.string().optional(),
 	wantsSubtitles: z.boolean().optional(),
 	languageProfileId: z.string().optional().nullable(),
+	desiredQualities: z
+		.array(z.enum(['2160p', '1080p', '720p', '480p']))
+		.nullable()
+		.optional(),
 	refreshIntervalHours: z.number().min(1).max(168).optional(),
 	enabled: z.boolean().optional(),
 	listSourceType: z

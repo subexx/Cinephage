@@ -19,6 +19,7 @@
 	} from '$lib/api/settings.js';
 	import { getLibraryStatus, createMovie, createSeries, bulkAddMovies } from '$lib/api/library.js';
 	import { getTmdb } from '$lib/api/discover.js';
+	import { getLanguageProfiles } from '$lib/api/subtitles.js';
 
 	interface Props {
 		open: boolean;
@@ -94,9 +95,16 @@
 		seasons?: Season[];
 	}
 
+	interface LanguageProfile {
+		id: string;
+		name: string;
+		isDefault?: boolean;
+	}
+
 	let rootFolders = $state<RootFolder[]>([]);
 	let libraries = $state<LibraryEntity[]>([]);
 	let scoringProfiles = $state<ScoringProfile[]>([]);
+	let languageProfiles = $state<LanguageProfile[]>([]);
 	let seasons = $state<Season[]>([]);
 	let isLoading = $state(false);
 	let isSubmitting = $state(false);
@@ -110,6 +118,7 @@
 
 	let selectedRootFolder = $state('');
 	let selectedScoringProfile = $state('');
+	let selectedLanguageProfile = $state('');
 	let searchOnAdd = $state(true);
 	let wantsSubtitles = $state(true);
 	let monitoredTouched = $state(false);
@@ -194,9 +203,13 @@
 
 	$effect(() => {
 		if (open) {
+			selectedRootFolder = '';
+			selectedScoringProfile = '';
+			selectedLanguageProfile = '';
 			monitored = true;
 			searchOnAdd = true;
 			wantsSubtitles = true;
+			selectedLanguageProfile = '';
 			minimumAvailability = 'released';
 			availabilityDelay = 0;
 			desiredQualities = [];
@@ -339,24 +352,30 @@
 		try {
 			const tmdbPromise = mediaType === 'tv' ? getTmdb(`tv/${tmdbId}`) : getTmdb(`movie/${tmdbId}`);
 
-			const [foldersData, librariesData, profilesData, classificationData, tmdbRes] =
+			const [foldersData, librariesData, profilesData, classificationData, tmdbRes, languageRes] =
 				(await Promise.all([
 					getRootFolders(),
 					getLibraries({ mediaType }),
 					getScoringProfiles(),
 					getLibraryClassificationSettings(),
-					tmdbPromise
+					tmdbPromise,
+					getLanguageProfiles().catch(() => [])
 				])) as unknown as [
 					{ folders?: RootFolder[] } | RootFolder[],
 					{ libraries?: LibraryEntity[] },
 					{ profiles?: ScoringProfile[]; defaultProfileId?: string },
 					{ enforceAnimeSubtype?: boolean },
-					unknown
+					unknown,
+					LanguageProfile[] | { profiles?: LanguageProfile[] }
 				];
 
 			rootFolders = Array.isArray(foldersData) ? foldersData : (foldersData.folders ?? []);
 			libraries = librariesData.libraries ?? [];
 			scoringProfiles = profilesData.profiles ?? [];
+			languageProfiles = Array.isArray(languageRes) ? languageRes : (languageRes.profiles ?? []);
+			if (!selectedLanguageProfile) {
+				selectedLanguageProfile = languageProfiles.find((p) => p.isDefault)?.id ?? '';
+			}
 			enforceAnimeSubtype = classificationData?.enforceAnimeSubtype === true;
 
 			if (mediaType === 'tv' && tmdbRes) {
@@ -453,6 +472,7 @@
 				tmdbId,
 				rootFolderId: selectedRootFolder,
 				scoringProfileId: selectedScoringProfile || undefined,
+				languageProfileId: selectedLanguageProfile || undefined,
 				monitored: willBeMonitored,
 				searchOnAdd: willSearchOnAdd,
 				wantsSubtitles
@@ -592,6 +612,7 @@
 				{tmdbId}
 				{rootFolders}
 				{scoringProfiles}
+				{languageProfiles}
 				{requiredMediaSubType}
 				{enforceAnimeSubtype}
 				{error}
@@ -601,6 +622,7 @@
 				onWantsSubtitlesInput={handleWantsSubtitlesInput}
 				bind:selectedRootFolder
 				bind:selectedScoringProfile
+				bind:selectedLanguageProfile
 				bind:searchOnAdd
 				bind:wantsSubtitles
 				bind:minimumAvailability
@@ -616,6 +638,7 @@
 				{posterPath}
 				{rootFolders}
 				{scoringProfiles}
+				{languageProfiles}
 				{requiredMediaSubType}
 				{enforceAnimeSubtype}
 				{error}
@@ -626,6 +649,7 @@
 				onWantsSubtitlesInput={handleWantsSubtitlesInput}
 				bind:selectedRootFolder
 				bind:selectedScoringProfile
+				bind:selectedLanguageProfile
 				bind:searchOnAdd
 				bind:wantsSubtitles
 				bind:monitorType

@@ -190,4 +190,19 @@ describe('updateQueueItem stalled clock across failed recovery', () => {
 		expect(updated?.status).toBe('downloading');
 		expect(updated?.stalledSince).toBeNull();
 	});
+
+	it('does not resurrect a failed item after import attempts are exhausted', async () => {
+		const row = await insertQueueRow({
+			status: 'failed',
+			importAttempts: 11,
+			errorMessage: 'Import failed after 11 attempts',
+			importFailed: true
+		});
+
+		await callUpdateQueueItem(row, makeDownload({ status: 'completed', progress: 1 }));
+
+		const updated = await getRow(row.id);
+		expect(updated?.status).toBe('failed');
+		expect(updated?.errorMessage).toBe('Import failed after 11 attempts');
+	});
 });

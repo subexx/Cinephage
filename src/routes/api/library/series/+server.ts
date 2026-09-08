@@ -152,7 +152,8 @@ export const POST: RequestHandler = async (event) => {
 			monitorSpecials,
 			monitoredSeasons: selectedSeasons,
 			searchOnAdd: shouldSearch,
-			wantsSubtitles
+			wantsSubtitles,
+			languageProfileId: requestedLanguageProfileId
 		} = result.data;
 
 		// Check if series already exists
@@ -223,7 +224,11 @@ export const POST: RequestHandler = async (event) => {
 		const effectiveProfileId = await getEffectiveScoringProfileId(scoringProfileId, owningLibrary);
 
 		// Get the language profile if subtitles wanted (shared logic)
-		const languageProfileId = await getLanguageProfileId(wantsSubtitles, tmdbId);
+		const languageProfileId = await getLanguageProfileId(
+			wantsSubtitles,
+			tmdbId,
+			requestedLanguageProfileId
+		);
 
 		// Auto-select episode group for correct season ordering (e.g. TVDB order for anime)
 		const { group: episodeGroup, selectedGroupId: episodeGroupId } = await getEffectiveEpisodeGroup(

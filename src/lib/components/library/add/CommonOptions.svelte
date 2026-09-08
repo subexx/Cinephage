@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FolderOpen, BarChart3, Search, Captions } from 'lucide-svelte';
+	import { FolderOpen, BarChart3, Search, Captions, Languages } from 'lucide-svelte';
 	import { resolve } from '$app/paths';
 	import { getWritableRootFoldersForMediaType } from '$lib/utils/root-folders.js';
 	import * as m from '$lib/paraglide/messages.js';
@@ -16,12 +16,20 @@
 		maxResolution?: string | null;
 	}
 
+	interface LanguageProfile {
+		id: string;
+		name: string;
+		isDefault?: boolean;
+	}
+
 	interface Props {
 		mediaType: 'movie' | 'tv';
 		rootFolders: RootFolder[];
 		scoringProfiles: ScoringProfile[];
+		languageProfiles?: LanguageProfile[];
 		selectedRootFolder: string;
 		selectedScoringProfile: string;
+		selectedLanguageProfile: string;
 		searchOnAdd: boolean;
 		wantsSubtitles: boolean;
 		requiredMediaSubType?: 'standard' | 'anime';
@@ -33,8 +41,10 @@
 		mediaType,
 		rootFolders,
 		scoringProfiles,
+		languageProfiles = [],
 		selectedRootFolder = $bindable(),
 		selectedScoringProfile = $bindable(),
+		selectedLanguageProfile = $bindable(),
 		searchOnAdd = $bindable(),
 		wantsSubtitles = $bindable(),
 		requiredMediaSubType,
@@ -126,6 +136,32 @@
 			{selectedProfileObj.description}
 		</p>
 	{/if}
+</div>
+
+<!-- Language Profile Select -->
+<div class="form-control min-w-0">
+	<label class="label" for="language-profile">
+		<span class="label-text flex items-center gap-2 font-medium">
+			<Languages class="h-4 w-4 shrink-0" />
+			Language profile
+		</span>
+	</label>
+	<select
+		id="language-profile"
+		class="select-bordered select w-full max-w-full"
+		bind:value={selectedLanguageProfile}
+	>
+		<option value="">Default</option>
+		{#each languageProfiles as profile (profile.id)}
+			<option value={profile.id}>
+				{profile.name}{profile.isDefault ? ' (default)' : ''}
+			</option>
+		{/each}
+	</select>
+	<p class="mt-1 text-xs text-base-content/60">
+		Used for subtitle languages when auto-downloading. Create profiles under Settings → Language
+		Profiles.
+	</p>
 </div>
 
 <!-- Search on Add Toggle -->

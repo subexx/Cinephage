@@ -13,6 +13,7 @@ import { getDownloadClientManager } from '$lib/server/downloadClients/DownloadCl
 import { downloadMonitor } from '$lib/server/downloadClients/monitoring';
 import { upsertQueueTombstoneFromQueueItem } from '$lib/server/downloadClients/monitoring/QueueTombstoneService';
 import { logger } from '$lib/logging';
+import { blocklistService } from '$lib/server/blocklist/BlocklistService.js';
 
 const DEFAULT_QUEUE_REMOVE_CLIENT_TIMEOUT_MS = 3000;
 
@@ -311,10 +312,35 @@ export const DELETE: RequestHandler = async ({ params, url }) => {
 			}
 		}
 
-		// Add to blocklist if requested
-		// Note: Blocklist table not yet implemented - would store infoHash to prevent re-downloading
-		if (addToBlocklist && queueItem.infoHash) {
-			logger.warn({ infoHash: queueItem.infoHash }, 'Blocklist not yet implemented');
+		// Permanently blocklist when requested. Match on title for usenet (no infoHash)
+		// so the same NZB is not grabbed again after a failed download.
+		if (addToBlocklist) {
+			try {
+				const id = blocklistService.addFromQueueItem(queueItem, {
+					reason: 'download_failed',
+					message: queueItem.errorMessage ?? 'Removed from queue and blocklisted'
+				});
+				if (id) {
+					logger.info(
+						{
+							queueId: queueItem.id,
+							title: queueItem.title,
+							protocol: queueItem.protocol,
+							infoHash: queueItem.infoHash
+						},
+						'Blocklisted release on queue removal'
+					);
+				}
+			} catch (blocklistError) {
+				logger.warn(
+					{
+						queueId: queueItem.id,
+						title: queueItem.title,
+						error: blocklistError instanceof Error ? blocklistError.message : String(blocklistError)
+					},
+					'Failed to blocklist release on queue removal'
+				);
+			}
 		}
 
 		// Add/refresh a suppression tombstone when local state is removed without confirmed

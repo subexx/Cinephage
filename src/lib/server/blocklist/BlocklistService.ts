@@ -156,6 +156,49 @@ class BlocklistService {
 		return { blockedHashes, blockedTitles };
 	}
 
+	/**
+	 * Blocklist a queue/download item by title (and infoHash when present).
+	 * Usenet releases have no torrent hash, so title matching is required.
+	 * Omit expiresInHours for a permanent entry.
+	 */
+	addFromQueueItem(
+		item: {
+			title: string;
+			infoHash?: string | null;
+			indexerId?: string | null;
+			quality?: BlocklistAddRelease['quality'] | null;
+			size?: number | null;
+			protocol?: string | null;
+			movieId?: string | null;
+			seriesId?: string | null;
+			episodeIds?: string[] | null;
+		},
+		options: { reason: BlocklistReason; message?: string; expiresInHours?: number }
+	): string | null {
+		if (!item.title && !item.infoHash) {
+			return null;
+		}
+
+		return this.addToBlocklist(
+			{
+				title: item.title || item.infoHash || 'unknown',
+				infoHash: item.infoHash ?? undefined,
+				indexerId: item.indexerId ?? undefined,
+				quality: item.quality ?? undefined,
+				size: item.size ?? undefined,
+				protocol: item.protocol ?? undefined
+			},
+			{
+				movieId: item.movieId ?? undefined,
+				seriesId: item.seriesId ?? undefined,
+				episodeIds: item.episodeIds ?? undefined,
+				reason: options.reason,
+				message: options.message,
+				expiresInHours: options.expiresInHours
+			}
+		);
+	}
+
 	addToBlocklist(release: BlocklistAddRelease, options: BlocklistAddOptions): string {
 		const expiresAt = options.expiresInHours
 			? new Date(Date.now() + options.expiresInHours * 60 * 60 * 1000).toISOString()

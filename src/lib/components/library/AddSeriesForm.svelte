@@ -24,14 +24,22 @@
 		poster_path?: string;
 	}
 
+	interface LanguageProfile {
+		id: string;
+		name: string;
+		isDefault?: boolean;
+	}
+
 	interface Props {
 		title: string;
 		year?: number;
 		posterPath?: string | null;
 		rootFolders: RootFolder[];
 		scoringProfiles: ScoringProfile[];
+		languageProfiles?: LanguageProfile[];
 		selectedRootFolder: string;
 		selectedScoringProfile: string;
+		selectedLanguageProfile: string;
 		searchOnAdd: boolean;
 		wantsSubtitles: boolean;
 		monitorType: MonitorType;
@@ -56,8 +64,10 @@
 		posterPath,
 		rootFolders,
 		scoringProfiles,
+		languageProfiles = [],
 		selectedRootFolder = $bindable(),
 		selectedScoringProfile = $bindable(),
+		selectedLanguageProfile = $bindable(),
 		searchOnAdd = $bindable(),
 		wantsSubtitles = $bindable(),
 		monitorType = $bindable(),
@@ -119,11 +129,13 @@
 		mediaType="tv"
 		{rootFolders}
 		{scoringProfiles}
+		{languageProfiles}
 		{requiredMediaSubType}
 		{onSearchOnAddInput}
 		{onWantsSubtitlesInput}
 		bind:selectedRootFolder
 		bind:selectedScoringProfile
+		bind:selectedLanguageProfile
 		bind:searchOnAdd
 		bind:wantsSubtitles
 	/>

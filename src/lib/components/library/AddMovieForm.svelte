@@ -28,6 +28,12 @@
 		parts: CollectionPart[];
 	}
 
+	interface LanguageProfile {
+		id: string;
+		name: string;
+		isDefault?: boolean;
+	}
+
 	interface Props {
 		title: string;
 		year?: number;
@@ -35,8 +41,10 @@
 		tmdbId: number;
 		rootFolders: RootFolder[];
 		scoringProfiles: ScoringProfile[];
+		languageProfiles?: LanguageProfile[];
 		selectedRootFolder: string;
 		selectedScoringProfile: string;
+		selectedLanguageProfile: string;
 		searchOnAdd: boolean;
 		wantsSubtitles: boolean;
 		minimumAvailability: MinimumAvailability;
@@ -60,8 +68,10 @@
 		tmdbId,
 		rootFolders,
 		scoringProfiles,
+		languageProfiles = [],
 		selectedRootFolder = $bindable(),
 		selectedScoringProfile = $bindable(),
+		selectedLanguageProfile = $bindable(),
 		searchOnAdd = $bindable(),
 		wantsSubtitles = $bindable(),
 		minimumAvailability = $bindable(),
@@ -123,11 +133,13 @@
 		mediaType="movie"
 		{rootFolders}
 		{scoringProfiles}
+		{languageProfiles}
 		{requiredMediaSubType}
 		{onSearchOnAddInput}
 		{onWantsSubtitlesInput}
 		bind:selectedRootFolder
 		bind:selectedScoringProfile
+		bind:selectedLanguageProfile
 		bind:searchOnAdd
 		bind:wantsSubtitles
 	/>

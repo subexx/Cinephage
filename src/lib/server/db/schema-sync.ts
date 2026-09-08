@@ -969,6 +969,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"minimum_availability" text DEFAULT 'released',
 		"wants_subtitles" integer DEFAULT true,
 		"language_profile_id" text,
+		"desired_qualities" text,
 		"refresh_interval_hours" integer DEFAULT 24 NOT NULL,
 		"last_refresh_time" text,
 		"last_refresh_status" text,

@@ -91,17 +91,15 @@ export class UsenetHandler {
 										seriesId,
 										episodeIds,
 										reason: 'download_failed',
-										message: `Unavailable on usenet: ${availability.completionPercentage}% articles found`,
-										expiresInHours: 72
+										message: `Unavailable on usenet: ${availability.completionPercentage}% articles found`
 									}
 								);
 								logger.info(
 									{
 										title: release.title,
-										indexer: release.indexerName,
-										expiresInHours: 72
+										indexer: release.indexerName
 									},
-									'Auto-blocklisted unavailable release'
+									'Permanently blocklisted unavailable usenet release'
 								);
 							} catch (blocklistError) {
 								logger.warn(

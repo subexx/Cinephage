@@ -1775,7 +1775,8 @@ export const addMovieSchema = z.object({
 	minimumAvailability: z.enum(['announced', 'inCinemas', 'released']).default('released'),
 	availabilityDelay: z.number().int().min(0).max(365).default(0),
 	searchOnAdd: z.boolean().default(true),
-	wantsSubtitles: z.boolean().default(true)
+	wantsSubtitles: z.boolean().default(true),
+	languageProfileId: z.string().optional()
 });
 
 /**
@@ -1805,7 +1806,8 @@ export const addSeriesSchema = z.object({
 	monitorSpecials: z.boolean().default(false),
 	monitoredSeasons: z.array(z.number().int()).optional(),
 	searchOnAdd: z.boolean().default(true),
-	wantsSubtitles: z.boolean().default(true)
+	wantsSubtitles: z.boolean().default(true),
+	languageProfileId: z.string().optional()
 });
 
 /**
@@ -1819,7 +1821,8 @@ export const bulkAddMoviesSchema = z.object({
 	minimumAvailability: z.enum(['announced', 'inCinemas', 'released']).default('released'),
 	availabilityDelay: z.number().int().min(0).max(365).default(0),
 	searchOnAdd: z.boolean().default(true),
-	wantsSubtitles: z.boolean().default(true)
+	wantsSubtitles: z.boolean().default(true),
+	languageProfileId: z.string().optional()
 });
 
 /**
@@ -2225,6 +2228,10 @@ export const smartListCreateSchema = z.object({
 	minimumAvailability: z.string().optional(),
 	wantsSubtitles: z.boolean().optional(),
 	languageProfileId: z.string().optional(),
+	desiredQualities: z
+		.array(z.enum(['2160p', '1080p', '720p', '480p']))
+		.nullable()
+		.optional(),
 	refreshIntervalHours: z.number().min(1).max(168).optional(),
 	enabled: z.boolean().optional(),
 	listSourceType: z

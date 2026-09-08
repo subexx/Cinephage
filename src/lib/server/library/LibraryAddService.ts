@@ -153,8 +153,13 @@ export async function getEffectiveScoringProfileId(
  */
 export async function getLanguageProfileId(
 	wantsSubtitles: boolean,
-	tmdbId: number
+	tmdbId: number,
+	explicitProfileId?: string | null
 ): Promise<string | null> {
+	if (explicitProfileId) {
+		return explicitProfileId;
+	}
+
 	if (!wantsSubtitles) {
 		return null;
 	}
