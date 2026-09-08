@@ -3,8 +3,12 @@ export function withApiKey(url: string, apiKey: string): string {
 	return `${url}${separator}api_key=${encodeURIComponent(apiKey)}`;
 }
 
+/**
+ * Stremio/Nuvio need a `.m3u8` path so the player treats the URL as HLS/media.
+ * Jellyfin .strm files keep using the extension-less session route.
+ */
 export function buildMovieSessionUrl(baseUrl: string, tmdbId: number, apiKey: string): string {
-	return withApiKey(`${baseUrl}/api/streaming/session/movie/${tmdbId}`, apiKey);
+	return withApiKey(`${baseUrl}/api/streaming/session/movie/${tmdbId}/master.m3u8`, apiKey);
 }
 
 export function buildEpisodeSessionUrl(
@@ -15,21 +19,41 @@ export function buildEpisodeSessionUrl(
 	apiKey: string
 ): string {
 	return withApiKey(
-		`${baseUrl}/api/streaming/session/tv/${tmdbId}/${season}/${episode}`,
+		`${baseUrl}/api/streaming/session/tv/${tmdbId}/${season}/${episode}/master.m3u8`,
 		apiKey
 	);
 }
 
-export function buildMovieLibraryFileUrl(baseUrl: string, fileId: string, apiKey: string): string {
-	return withApiKey(`${baseUrl}/api/streaming/library/movie/${fileId}`, apiKey);
+/** Append a filename fragment so players can sniff container when the path has no extension. */
+export function withFilenameHint(url: string, filename: string | undefined): string {
+	if (!filename) return url;
+	const safe = filename.replace(/[/\\#?]/g, '_');
+	if (!safe.includes('.')) return url;
+	return `${url}#${encodeURIComponent(safe)}`;
+}
+
+export function buildMovieLibraryFileUrl(
+	baseUrl: string,
+	fileId: string,
+	apiKey: string,
+	filename?: string
+): string {
+	return withFilenameHint(
+		withApiKey(`${baseUrl}/api/streaming/library/movie/${fileId}`, apiKey),
+		filename
+	);
 }
 
 export function buildEpisodeLibraryFileUrl(
 	baseUrl: string,
 	fileId: string,
-	apiKey: string
+	apiKey: string,
+	filename?: string
 ): string {
-	return withApiKey(`${baseUrl}/api/streaming/library/episode/${fileId}`, apiKey);
+	return withFilenameHint(
+		withApiKey(`${baseUrl}/api/streaming/library/episode/${fileId}`, apiKey),
+		filename
+	);
 }
 
 export function buildStremioManifestUrl(baseUrl: string, apiKey: string): string {
