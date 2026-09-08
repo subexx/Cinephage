@@ -15,7 +15,8 @@ import {
 	buildEpisodeSessionUrl,
 	buildMovieLibraryFileUrl,
 	buildMovieSessionUrl,
-	isStrmPath
+	isStrmPath,
+	isWebReadyPath
 } from './urls.js';
 import {
 	formatStreamLabels,
@@ -200,17 +201,16 @@ export class StremioAddonService {
 			.from(movieFiles)
 			.where(and(eq(movieFiles.movieId, movie.id), eq(movieFiles.contentCategory, 'main')));
 
-		return sortStreamFiles(files).map((file) => {
-			const basename = fileBasename(file.relativePath);
-			return this.toStream({
+		return sortStreamFiles(files).map((file) =>
+			this.toStream({
 				file,
 				url: isStrmPath(file.relativePath)
 					? buildMovieSessionUrl(baseUrl, movie.tmdbId, apiKey)
-					: buildMovieLibraryFileUrl(baseUrl, file.id, apiKey, basename),
+					: buildMovieLibraryFileUrl(baseUrl, file.id, apiKey),
 				bingeGroup: `${display.addonName}-${movie.id}-${file.quality?.resolution ?? 'unknown'}`,
 				display
-			});
-		});
+			})
+		);
 	}
 
 	private async episodeStreams(
@@ -255,17 +255,16 @@ export class StremioAddonService {
 
 		const matching = files.filter((file) => fileHasEpisode(file, episode.id));
 
-		return sortStreamFiles(matching).map((file) => {
-			const basename = fileBasename(file.relativePath);
-			return this.toStream({
+		return sortStreamFiles(matching).map((file) =>
+			this.toStream({
 				file,
 				url: isStrmPath(file.relativePath)
 					? buildEpisodeSessionUrl(baseUrl, show.tmdbId, parsed.season!, parsed.episode!, apiKey)
-					: buildEpisodeLibraryFileUrl(baseUrl, file.id, apiKey, basename),
+					: buildEpisodeLibraryFileUrl(baseUrl, file.id, apiKey),
 				bingeGroup: `${display.addonName}-${show.id}-${file.quality?.resolution ?? 'unknown'}`,
 				display
-			});
-		});
+			})
+		);
 	}
 
 	private toStream(input: {
@@ -275,10 +274,9 @@ export class StremioAddonService {
 		display: StremioAddonDisplaySettings;
 	}): StremioStream {
 		const labels = formatStreamLabels(toFormatInput(input.file), input.display);
-		const basename = fileBasename(input.file.relativePath);
 		const filename = isStrmPath(input.file.relativePath)
-			? basename.replace(/\.strm$/i, '.m3u8')
-			: basename;
+			? undefined
+			: fileBasename(input.file.relativePath);
 		return {
 			name: labels.name,
 			title: labels.name,
@@ -286,9 +284,7 @@ export class StremioAddonService {
 			description: labels.description,
 			behaviorHints: {
 				bingeGroup: input.bingeGroup,
-				// Match AIOMedia Direct Play: mark non-transcode streams notWebReady so
-				// Nuvio/Stremio use their external/native player path instead of HTML5-only.
-				notWebReady: true,
+				notWebReady: !isWebReadyPath(input.file.relativePath),
 				filename
 			}
 		};
