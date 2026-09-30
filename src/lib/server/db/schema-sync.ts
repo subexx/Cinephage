@@ -579,7 +579,6 @@ const TABLE_DEFINITIONS: string[] = [
 		"root_folder_id" text REFERENCES "root_folders"("id") ON DELETE SET NULL,
 		"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
 		"desired_qualities" text,
-		"original_language" text,
 		"language_profile_id" text,
 		"subtitle_requirements_override" text,
 		"monitored" integer DEFAULT true,

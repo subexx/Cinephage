@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { logger, createChildLogger } from '$lib/logging/index.js';
 import { db } from '$lib/server/db/index.js';
 import { todayDateString } from '$lib/utils/format.js';
 import {

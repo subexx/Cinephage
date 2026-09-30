@@ -6,12 +6,20 @@ const stage = new AudioLanguageStage();
 
 describe('AudioLanguageStage', () => {
 	it('is only enabled for automatic grabs', () => {
-		expect(stage.isEnabled(makeGrabDecisionContext({ options: { force: false, skipBlocklist: false, allowSidegrade: false, isAutomatic: true } }))).toBe(
-			true
-		);
-		expect(stage.isEnabled(makeGrabDecisionContext({ options: { force: false, skipBlocklist: false, allowSidegrade: false, isAutomatic: false } }))).toBe(
-			false
-		);
+		expect(
+			stage.isEnabled(
+				makeGrabDecisionContext({
+					options: { force: false, skipBlocklist: false, allowSidegrade: false, isAutomatic: true }
+				})
+			)
+		).toBe(true);
+		expect(
+			stage.isEnabled(
+				makeGrabDecisionContext({
+					options: { force: false, skipBlocklist: false, allowSidegrade: false, isAutomatic: false }
+				})
+			)
+		).toBe(false);
 	});
 
 	it('accepts English audio', async () => {

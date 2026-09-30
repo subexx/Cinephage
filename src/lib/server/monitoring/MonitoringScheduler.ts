@@ -334,11 +334,8 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 			stalledDownloadBlocklistHours: parseFloat(
 				settingsMap.get('stalled_download_blocklist_hours') || '72'
 			),
-			staleMissingUnmonitorEnabled:
-				settingsMap.get('stale_missing_unmonitor_enabled') !== 'false',
-			staleMissingMinAgeDays: parseFloat(
-				settingsMap.get('stale_missing_min_age_days') || '365'
-			),
+			staleMissingUnmonitorEnabled: settingsMap.get('stale_missing_unmonitor_enabled') !== 'false',
+			staleMissingMinAgeDays: parseFloat(settingsMap.get('stale_missing_min_age_days') || '365'),
 			staleMissingMinFailedSearches: parseFloat(
 				settingsMap.get('stale_missing_min_failed_searches') || '5'
 			)

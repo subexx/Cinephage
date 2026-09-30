@@ -100,9 +100,7 @@ export const migration_v154: MigrationDefinition = {
 					`UPDATE language_settings SET default_profile_id = ?, updated_at = ? WHERE id = 'singleton'`
 				)
 				.run(ENGLISH_ORIGINAL_PROFILE_ID, now);
-			const updated = sqlite
-				.prepare(`SELECT changes() as c`)
-				.get() as { c: number };
+			const updated = sqlite.prepare(`SELECT changes() as c`).get() as { c: number };
 			if (updated.c === 0) {
 				sqlite
 					.prepare(

@@ -19,8 +19,12 @@
 	let successMessage = $state<string | null>(null);
 	let showCreateModal = $state(false);
 
+	// Form draft state seeded once from the server load; saves write back via API.
+	// svelte-ignore state_referenced_locally
 	let staleEnabled = $state(data.staleMissingSettings.staleMissingUnmonitorEnabled);
+	// svelte-ignore state_referenced_locally
 	let staleMinAgeDays = $state(data.staleMissingSettings.staleMissingMinAgeDays);
+	// svelte-ignore state_referenced_locally
 	let staleMinFailed = $state(data.staleMissingSettings.staleMissingMinFailedSearches);
 	let staleSaving = $state(false);
 
@@ -36,8 +40,7 @@
 			successMessage = 'Stale missing settings saved';
 			autoDismissSuccess();
 		} catch (err) {
-			errorMessage =
-				err instanceof Error ? err.message : 'Failed to save stale missing settings';
+			errorMessage = err instanceof Error ? err.message : 'Failed to save stale missing settings';
 		} finally {
 			staleSaving = false;
 		}
@@ -362,7 +365,7 @@
 					<span class="label-text mb-1">Min age (days)</span>
 					<input
 						type="number"
-						class="input input-bordered input-sm w-full"
+						class="input-bordered input w-full input-sm"
 						min="1"
 						bind:value={staleMinAgeDays}
 					/>
@@ -371,7 +374,7 @@
 					<span class="label-text mb-1">Min failed searches</span>
 					<input
 						type="number"
-						class="input input-bordered input-sm w-full"
+						class="input-bordered input w-full input-sm"
 						min="1"
 						bind:value={staleMinFailed}
 					/>

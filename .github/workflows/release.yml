@@ -17,6 +17,9 @@ permissions:
 jobs:
   release:
     name: Release
+    # Upstream-only: fork pushes include merge commits that reference PRs which
+    # do not exist on the fork, which breaks @semantic-release/github success.
+    if: github.repository == 'MoldyTaint/Cinephage'
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.release-tag.outputs.release_tag }}

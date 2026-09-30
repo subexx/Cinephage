@@ -8,6 +8,7 @@ import type {
 	SmartListItemRecord,
 	SmartListRefreshHistoryRecord
 } from '$lib/server/db/schema.js';
+import type { DesiredQuality } from '$lib/types/library.js';
 
 // Re-export schema types
 export type {
@@ -53,7 +54,7 @@ export interface CreateSmartListInput {
 	minimumAvailability?: string;
 	wantsSubtitles?: boolean;
 	languageProfileId?: string;
-	desiredQualities?: string[] | null;
+	desiredQualities?: DesiredQuality[] | null;
 	refreshIntervalHours?: number;
 	enabled?: boolean;
 	listSourceType?: ListSourceType;
@@ -84,7 +85,7 @@ export interface UpdateSmartListInput {
 	minimumAvailability?: string;
 	wantsSubtitles?: boolean;
 	languageProfileId?: string | null;
-	desiredQualities?: string[] | null;
+	desiredQualities?: DesiredQuality[] | null;
 	refreshIntervalHours?: number;
 	enabled?: boolean;
 	listSourceType?: ListSourceType;

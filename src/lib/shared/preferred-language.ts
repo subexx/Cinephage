@@ -37,7 +37,9 @@ export function classifyReleaseAudio(
 	const original = originalLanguage ? normalizeLanguageCode(originalLanguage) : null;
 	const originalIsEnglish = !original || isEnglishLanguageCode(original);
 
-	const hasEnglish = langs.some((language) => isEnglishLanguageCode(language) || MULTI_CODES.has(language));
+	const hasEnglish = langs.some(
+		(language) => isEnglishLanguageCode(language) || MULTI_CODES.has(language)
+	);
 	if (hasEnglish) return 'preferred';
 
 	const hasOrigMarker = langs.some((language) => ORIGINAL_MARKERS.has(language));

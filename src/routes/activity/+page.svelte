@@ -1438,8 +1438,12 @@
 			blocklist?: boolean;
 		} = {}
 	): Promise<void> {
-		const { refresh = true, closeDetailModal = true, removeFromClient = true, blocklist = false } =
-			options;
+		const {
+			refresh = true,
+			closeDetailModal = true,
+			removeFromClient = true,
+			blocklist = false
+		} = options;
 		await removeQueueItemApi(id, { removeFromClient, blocklist });
 
 		if (refresh) {

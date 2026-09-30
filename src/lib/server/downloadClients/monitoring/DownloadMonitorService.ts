@@ -1559,7 +1559,11 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 
 		// SAB/NZBGet keep completed history forever. Do not treat that as recovery
 		// after we have already given up on importing this release.
-		if (queueItem.status === 'failed' && newStatus !== 'failed' && isTerminalImportFailure(queueItem)) {
+		if (
+			queueItem.status === 'failed' &&
+			newStatus !== 'failed' &&
+			isTerminalImportFailure(queueItem)
+		) {
 			logger.info(
 				{
 					title: queueItem.title,

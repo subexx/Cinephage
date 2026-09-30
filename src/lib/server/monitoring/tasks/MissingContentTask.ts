@@ -51,10 +51,7 @@ async function updateMovieFailedAttempts(movieId: string, status: SearchItemStat
 			})
 			.where(eq(movies.id, movieId));
 	} else if (status === 'grabbed' || status === 'found') {
-		await db
-			.update(movies)
-			.set({ failedContentSearchAttempts: 0 })
-			.where(eq(movies.id, movieId));
+		await db.update(movies).set({ failedContentSearchAttempts: 0 }).where(eq(movies.id, movieId));
 	}
 }
 

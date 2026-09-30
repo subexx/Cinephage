@@ -67,8 +67,8 @@
 	</div>
 	<div class="label">
 		<span class="label-text-alt wrap-break-word whitespace-normal text-base-content/60">
-			Select 4K and 1080p to keep both copies. If 4K is missing, 1080p is kept; if 1080p is
-			missing a lower copy may be grabbed until a desired tier appears.
+			Select 4K and 1080p to keep both copies. If 4K is missing, 1080p is kept; if 1080p is missing
+			a lower copy may be grabbed until a desired tier appears.
 		</span>
 	</div>
 	{#if hasOutOfRangeSelection}
