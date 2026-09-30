@@ -178,7 +178,7 @@
 				<label class="flex items-center gap-2 text-xs font-medium">
 					<input
 						type="checkbox"
-						class="checkbox checkbox-sm"
+						class="checkbox checkbox-sm checkbox-primary"
 						checked={allSelected}
 						indeterminate={someSelected}
 						onchange={(e) => onSelectAll(e.currentTarget.checked)}
@@ -245,7 +245,7 @@
 						{:else}
 							<input
 								type="checkbox"
-								class="checkbox checkbox-sm"
+								class="checkbox checkbox-sm checkbox-primary"
 								checked={selectedIds.has(indexer.id)}
 								onchange={(e) => onSelect(indexer.id, e.currentTarget.checked)}
 							/>
@@ -388,7 +388,7 @@
 						<Settings class="h-4 w-4" />
 					</button>
 					<button
-						class="btn text-error btn-ghost btn-xs"
+						class="btn btn-ghost text-error btn-xs"
 						onclick={() => onDelete(indexer)}
 						disabled={reorderMode}
 						title="Delete indexer"
@@ -432,7 +432,7 @@
 						{:else}
 							<input
 								type="checkbox"
-								class="checkbox checkbox-sm"
+								class="checkbox checkbox-sm checkbox-primary"
 								checked={allSelected}
 								indeterminate={someSelected}
 								onchange={(e) => onSelectAll(e.currentTarget.checked)}

@@ -59,6 +59,9 @@ export interface DownloadClient {
 	// Note: apiToken not returned to frontend for security
 	hasApiToken: boolean;
 	removeAfterImport: boolean;
+	/** Content-type restriction: which media types this debrid client may be selected for. */
+	allowMovies: boolean;
+	allowTv: boolean;
 
 	// Categories
 	movieCategory: string;
@@ -72,6 +75,8 @@ export interface DownloadClient {
 	// Seeding limits
 	seedRatioLimit?: string | null;
 	seedTimeLimit?: number | null;
+	/** qBittorrent only: request sequential piece downloading for newly added torrents. */
+	sequentialDownload?: boolean;
 
 	// Path mapping (completed downloads)
 	downloadPathLocal?: string | null;
@@ -106,6 +111,8 @@ export interface DownloadClientInput {
 	priority?: number;
 	apiToken?: string | null;
 	removeAfterImport?: boolean;
+	allowMovies?: boolean;
+	allowTv?: boolean;
 	// Non-debrid fields
 	host?: string;
 	port?: number;
@@ -121,6 +128,7 @@ export interface DownloadClientInput {
 	initialState?: DownloadInitialState;
 	seedRatioLimit?: string | null;
 	seedTimeLimit?: number | null;
+	sequentialDownload?: boolean;
 	downloadPathLocal?: string | null;
 	downloadPathRemote?: string | null;
 	tempPathLocal?: string | null;
@@ -148,6 +156,7 @@ export interface DownloadClientFormData {
 	initialState?: DownloadInitialState;
 	seedRatioLimit?: string | null;
 	seedTimeLimit?: number | null;
+	sequentialDownload?: boolean;
 	downloadPathLocal?: string | null;
 	downloadPathRemote?: string | null;
 	tempPathLocal?: string | null;
@@ -155,6 +164,8 @@ export interface DownloadClientFormData {
 	priority: number;
 	apiToken?: string;
 	removeAfterImport?: boolean;
+	allowMovies?: boolean;
+	allowTv?: boolean;
 }
 
 /**
@@ -200,16 +211,19 @@ export type RootFolderWithSpaceAndDefault = Omit<
 		| 'mediaSubType'
 		| 'isDefault'
 		| 'defaultMonitored'
+		| 'readOnly'
 		| 'freeSpaceBytes'
 	>,
 	'mediaType' | 'mediaSubType'
 > & {
 	mediaType: string;
 	mediaSubType?: string | null;
+	readOnly?: boolean;
 };
 
 export type RootFolderBasic = Omit<Pick<RootFolder, 'id' | 'path' | 'mediaType'>, 'mediaType'> & {
 	mediaType: string;
+	readOnly?: boolean | null;
 };
 
 /**
@@ -320,6 +334,8 @@ export interface UnifiedClientItem {
 	// Download client fields
 	movieCategory?: string;
 	tvCategory?: string;
+	allowMovies?: boolean;
+	allowTv?: boolean;
 	recentPriority?: string;
 	olderPriority?: string;
 	initialState?: string;

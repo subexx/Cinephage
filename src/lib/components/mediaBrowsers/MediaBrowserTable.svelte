@@ -118,7 +118,7 @@
 				<label class="flex items-center gap-2 text-xs font-medium">
 					<input
 						type="checkbox"
-						class="checkbox checkbox-sm"
+						class="checkbox checkbox-sm checkbox-primary"
 						checked={allSelected}
 						indeterminate={someSelected}
 						onchange={(e) => onSelectAll(e.currentTarget.checked)}
@@ -143,7 +143,7 @@
 					<div class="flex min-w-0 items-start gap-2.5">
 						<input
 							type="checkbox"
-							class="checkbox checkbox-sm"
+							class="checkbox checkbox-sm checkbox-primary"
 							checked={selectedIds.has(server.id)}
 							onchange={(e) => onSelect(server.id, e.currentTarget.checked)}
 						/>
@@ -244,7 +244,7 @@
 						<Settings class="h-4 w-4" />
 					</button>
 					<button
-						class="btn text-error btn-ghost btn-xs"
+						class="btn btn-ghost text-error btn-xs"
 						onclick={() => onDelete(server)}
 						title={m.action_delete()}
 						aria-label={m.mediaBrowser_deleteServer()}
@@ -263,7 +263,7 @@
 					<th class="w-10">
 						<input
 							type="checkbox"
-							class="checkbox checkbox-sm"
+							class="checkbox checkbox-sm checkbox-primary"
 							checked={allSelected}
 							indeterminate={someSelected}
 							onchange={(e) => onSelectAll(e.currentTarget.checked)}
@@ -325,7 +325,7 @@
 						<td class="w-10">
 							<input
 								type="checkbox"
-								class="checkbox checkbox-sm"
+								class="checkbox checkbox-sm checkbox-primary"
 								checked={selectedIds.has(server.id)}
 								onchange={(e) => onSelect(server.id, e.currentTarget.checked)}
 							/>
@@ -420,7 +420,7 @@
 									<Settings class="h-4 w-4" />
 								</button>
 								<button
-									class="btn text-error btn-ghost btn-xs"
+									class="btn btn-ghost text-error btn-xs"
 									onclick={() => onDelete(server)}
 									title={m.action_delete()}
 								>

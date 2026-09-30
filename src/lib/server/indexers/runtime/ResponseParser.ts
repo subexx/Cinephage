@@ -17,6 +17,7 @@ import { TemplateEngine } from '../engine/TemplateEngine';
 import { FilterEngine } from '../engine/FilterEngine';
 import { SelectorEngine, type JsonValue } from '../engine/SelectorEngine';
 import { createChildLogger } from '$lib/logging';
+import { normalizeLanguageTag } from '$lib/server/languages/normalize.js';
 
 const logger = createChildLogger({ logDomain: 'indexers' as const });
 import { extractInfoHash } from '$lib/server/downloadClients/utils/hashUtils';
@@ -118,14 +119,20 @@ export class ResponseParser {
 
 	/**
 	 * Determine response type from path config or content.
+	 *
+	 * The Cardigann convention (used by most bundled definitions) declares
+	 * `response.type` as a sibling of `paths`/`rows`/`fields` on the shared
+	 * search block, not per-path - so a per-path override is checked first,
+	 * then the search-block-level declaration, before falling back to
+	 * content-sniffing for definitions that don't declare either.
 	 */
 	private getResponseType(
 		searchPath: SearchPathBlock | undefined,
 		content: string
 	): 'json' | 'html' | 'xml' {
-		// Check path-specific response type
-		if (searchPath?.response?.type) {
-			return searchPath.response.type;
+		const declaredType = searchPath?.response?.type ?? this.definition.search?.response?.type;
+		if (declaredType) {
+			return declaredType;
 		}
 
 		// Auto-detect from content
@@ -522,7 +529,11 @@ export class ResponseParser {
 			'rageid',
 			'tvmazeid',
 			'traktid',
-			'doubanid'
+			'doubanid',
+			'language',
+			'languages',
+			'subs',
+			'subtitles'
 		];
 		if (optionalFields.includes(lowerName)) {
 			return true;
@@ -699,7 +710,38 @@ export class ResponseParser {
 			if (!isNaN(tvdbId)) result.tvdbId = tvdbId;
 		}
 
+		// Structured language attrs (torznab/newznab `language`/`subs`) — the
+		// indexer asserts these; title-token parsing stays on `parsed.languages`.
+		const audioLanguages = this.parseLanguageList(values['language'] ?? values['languages']);
+		if (audioLanguages.length > 0) {
+			result.languages = audioLanguages;
+		}
+		const subtitleLanguages = this.parseLanguageList(values['subs'] ?? values['subtitles']);
+		if (subtitleLanguages.length > 0) {
+			result.subtitleLanguages = subtitleLanguages;
+		}
+
 		return result;
+	}
+
+	/**
+	 * Parse a possibly multi-valued language attribute ("English, Spanish",
+	 * "en;es") into canonical tags. Unknown tokens are dropped, not guessed.
+	 */
+	private parseLanguageList(value: string | null | undefined): string[] {
+		if (!value) return [];
+		const seen = new Set<string>();
+		const out: string[] = [];
+		for (const token of value.split(/[,;|/]/)) {
+			// Full ISO-aware normalizer: valid codes outside the curated list
+			// (fil, ceb, ...) must not be silently dropped here while the title
+			// parser and audio ranking accept them.
+			const canonical = normalizeLanguageTag(token.trim());
+			if (canonical === 'und' || seen.has(canonical)) continue;
+			seen.add(canonical);
+			out.push(canonical);
+		}
+		return out;
 	}
 
 	/**

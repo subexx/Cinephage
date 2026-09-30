@@ -195,7 +195,8 @@
 				implementation: provider.implementation,
 				apiKey: provider.apiKey,
 				username: provider.username,
-				password: provider.password
+				password: provider.password,
+				settings: provider.settings
 			});
 			return payload;
 		} catch (e) {
@@ -343,8 +344,7 @@
 		try {
 			for (const id of selectedIds) {
 				const provider = data.providers.find((p) => p.id === id) as
-					| SubtitleProviderWithDefinition
-					| undefined;
+					SubtitleProviderWithDefinition | undefined;
 				if (!provider) continue;
 
 				const result = await testProviderConnection(provider);
@@ -386,7 +386,8 @@
 				implementation: formData.implementation as SubtitleProviderImplementation,
 				apiKey: resolvedApiKey,
 				username: formData.username,
-				password: resolvedPassword
+				password: resolvedPassword,
+				settings: formData.settings
 			});
 			return { success: Boolean(result.success), error: result.error };
 		} catch (e) {
@@ -482,7 +483,7 @@
 	subtitle={m.settings_integrations_subtitleProviders_subtitle()}
 >
 	{#snippet actions()}
-		<button class="btn w-full gap-2 btn-sm btn-primary sm:w-auto" onclick={openAddModal}>
+		<button class="btn w-full gap-2 btn-primary btn-sm sm:w-auto" onclick={openAddModal}>
 			<Plus class="h-4 w-4" />
 			{m.settings_integrations_subtitleProviders_addProvider()}
 		</button>
@@ -496,7 +497,7 @@
 			<input
 				type="text"
 				placeholder={m.settings_integrations_subtitleProviders_searchPlaceholder()}
-				class="input input-sm w-full rounded-full border-base-content/20 bg-base-200/60 pr-4 pl-10 transition-all duration-200 placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
+				class="input w-full rounded-full border-base-content/20 bg-base-200/60 pr-4 pl-10 transition-all duration-200 input-sm placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
 				value={filters.search}
 				oninput={(e) => updateFilter('search', e.currentTarget.value)}
 			/>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { goto, beforeNavigate, afterNavigate } from '$app/navigation';
+	import { goto, beforeNavigate, afterNavigate, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { resolvePath } from '$lib/utils/routing';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -8,6 +8,7 @@
 	import LibraryMediaTable from '$lib/components/library/LibraryMediaTable.svelte';
 	import LibraryDrawer from '$lib/components/library/LibraryDrawer.svelte';
 	import LibraryBulkActionBar from '$lib/components/library/LibraryBulkActionBar.svelte';
+	import BulkLanguageProfileModal from '$lib/components/library/BulkLanguageProfileModal.svelte';
 	import BulkQualityProfileModal from '$lib/components/library/BulkQualityProfileModal.svelte';
 	import BulkDeleteModal from '$lib/components/library/BulkDeleteModal.svelte';
 	import DeleteConfirmationModal from '$lib/components/ui/modal/DeleteConfirmationModal.svelte';
@@ -39,33 +40,55 @@
 	import { getPrimaryAutoSearchIssue } from '$lib/utils/autoSearchIssues';
 	import { createProgressiveRenderer } from '$lib/utils/progressive-render.svelte.js';
 	import * as m from '$lib/paraglide/messages.js';
+	import { seriesStatusFilterOptions } from '$lib/utils/format-status.js';
 
 	let { data } = $props();
 
 	const SCROLL_KEY = 'cinephage:library:tv:scrollY';
 
 	beforeNavigate(({ to }) => {
-		if (to?.url.pathname.startsWith('/library/tv/')) {
-			localStorage.setItem(SCROLL_KEY, String(window.scrollY));
-		} else {
-			localStorage.removeItem(SCROLL_KEY);
+		try {
+			if (to?.url.pathname.startsWith('/library/tv/')) {
+				localStorage.setItem(SCROLL_KEY, String(window.scrollY));
+			} else {
+				localStorage.removeItem(SCROLL_KEY);
+			}
+		} catch {
+			// storage unavailable (blocked cookies / ETP)
 		}
 	});
 
 	afterNavigate(({ from }) => {
-		if (from?.url.pathname.startsWith('/library/tv/')) {
-			const saved = localStorage.getItem(SCROLL_KEY);
-			if (saved) {
-				requestAnimationFrame(() => window.scrollTo({ top: parseInt(saved), behavior: 'instant' }));
-				localStorage.removeItem(SCROLL_KEY);
+		try {
+			if (from?.url.pathname.startsWith('/library/tv/')) {
+				const saved = localStorage.getItem(SCROLL_KEY);
+				if (saved) {
+					requestAnimationFrame(() =>
+						window.scrollTo({ top: parseInt(saved), behavior: 'instant' })
+					);
+					localStorage.removeItem(SCROLL_KEY);
+				}
 			}
+		} catch {
+			// storage unavailable (blocked cookies / ETP)
 		}
 	});
 
 	// Selection state
 	let selectedSeries = new SvelteSet<string>();
 	let showCheckboxes = $state(false);
-	let searchQuery = $state('');
+	let searchQuery = $state(page.url.searchParams.get('q') ?? '');
+
+	// Keep the title search in the URL so refresh/back-navigation restores it and
+	// the returnTo parameter carries it into the detail page. replaceState avoids a navigation per keystroke.
+	$effect(() => {
+		const query = searchQuery.trim();
+		const url = new URL(window.location.href);
+		if (query) url.searchParams.set('q', query);
+		else url.searchParams.delete('q');
+		history.replaceState(history.state, '', url.pathname + url.search);
+	});
+
 	let drawerOpen = $state(false);
 
 	const filteredSeries = $derived(
@@ -77,7 +100,16 @@
 	// Progressive rendering: only render a screenful + buffer at a time
 	const renderer = createProgressiveRenderer(() => filteredSeries);
 	let bulkLoading = $state(false);
-	let currentBulkAction = $state<'monitor' | 'unmonitor' | 'quality' | 'delete' | null>(null);
+	let currentBulkAction = $state<
+		'monitor' | 'unmonitor' | 'quality' | 'delete' | 'language' | null
+	>(null);
+	let isLanguageModalOpen = $state(false);
+
+	async function handleBulkLanguageApplied(updated: number) {
+		selectedSeries.clear();
+		toasts.success(m.toast_library_tv_qualityUpdatedCount({ count: updated }));
+		await invalidateAll();
+	}
 	let isQualityModalOpen = $state(false);
 	let isDeleteModalOpen = $state(false);
 	let pendingDeleteSeriesId = $state<string | null>(null);
@@ -381,17 +413,14 @@
 			options: [
 				{ value: 'all', label: m.library_tv_filterAll() },
 				{ value: 'monitored', label: m.library_tv_filterMonitoredOnly() },
+				{ value: 'partial', label: m.library_tv_filterPartiallyMonitored() },
 				{ value: 'unmonitored', label: m.library_tv_filterNotMonitored() }
 			]
 		},
 		{
 			key: 'status',
 			label: m.library_tv_filterShowStatus(),
-			options: [
-				{ value: 'all', label: m.library_tv_filterAll() },
-				{ value: 'continuing', label: m.library_tv_filterContinuing() },
-				{ value: 'ended', label: m.library_tv_filterEnded() }
-			]
+			options: seriesStatusFilterOptions()
 		},
 		{
 			key: 'progress',
@@ -455,6 +484,9 @@
 
 	function updateUrlParam(key: string, value: string) {
 		const url = new URL(page.url);
+		const query = searchQuery.trim();
+		if (query) url.searchParams.set('q', query);
+		else url.searchParams.delete('q');
 		if (key === 'library') {
 			if (!value || value === defaultLibrarySlug) {
 				url.searchParams.delete(key);
@@ -470,10 +502,12 @@
 	}
 
 	function clearFilters() {
+		searchQuery = '';
 		const url = new URL(resolve('/library/tv'), page.url.origin);
 		if (data.libraryScope?.isSubLibraryScope && data.libraryScope?.selected?.slug) {
 			url.searchParams.set('library', data.libraryScope.selected.slug);
 		}
+		url.searchParams.delete('q');
 		goto(resolvePath(url.pathname + url.search), { keepFocus: true, noScroll: true });
 	}
 
@@ -553,7 +587,7 @@
 					<input
 						type="text"
 						placeholder={m.library_tv_searchPlaceholder()}
-						class="input input-md w-full rounded-full border-base-content/20 bg-base-200/60 pr-9 pl-10 transition-all duration-200 placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
+						class="input w-full rounded-full border-base-content/20 bg-base-200/60 pr-9 pl-10 transition-all duration-200 input-md placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
 						bind:value={searchQuery}
 					/>
 					{#if searchQuery}
@@ -587,7 +621,7 @@
 						<ChevronDown class="hidden h-3 w-3 sm:block" />
 					</div>
 					<ul
-						class="dropdown-content menu z-50 mt-2 w-44 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
+						class="menu dropdown-content z-50 mt-2 w-44 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
 					>
 						<li>
 							<button onclick={handleMonitorAll}>
@@ -658,7 +692,7 @@
 				<input
 					type="text"
 					placeholder={m.library_tv_searchPlaceholder()}
-					class="input input-md w-full rounded-full border-base-content/20 bg-base-200/60 pr-9 pl-10 transition-all duration-200 placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
+					class="input w-full rounded-full border-base-content/20 bg-base-200/60 pr-9 pl-10 transition-all duration-200 input-md placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
 					bind:value={searchQuery}
 				/>
 				{#if searchQuery}
@@ -702,7 +736,7 @@
 			<!-- Search Empty State -->
 			<div class="flex flex-col items-center justify-center py-20 text-center">
 				<div class="opacity-50">
-					<Search class="mb-4 h-16 w-16 mx-auto" />
+					<Search class="mx-auto mb-4 h-16 w-16" />
 					<p class="text-2xl font-bold">{m.library_tv_noSearchMatch({ query: searchQuery })}</p>
 					<p class="mt-2">{m.library_tv_tryDifferentSearch()}</p>
 				</div>
@@ -743,13 +777,16 @@
 			{:else}
 				<div class="animate-in fade-in slide-in-from-bottom-4 duration-500">
 					{#if viewPreferences.viewMode === 'grid'}
-						<div class="grid grid-cols-3 gap-3 sm:gap-4 lg:grid-cols-9">
+						<div
+							class="grid grid-cols-3 gap-3 sm:grid-cols-4 sm:gap-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-9"
+						>
 							{#each renderer.visible as show (show.id)}
 								<LibraryMediaCard
 									item={show}
 									selectable={showCheckboxes}
 									selected={selectedSeries.has(show.id)}
 									onSelectChange={handleItemSelectChange}
+									preferOriginalTitleDefault={data.preferOriginalTitleDefault}
 								/>
 							{/each}
 						</div>
@@ -767,6 +804,7 @@
 							onDelete={handleDeleteSeries}
 							onAutoGrab={handleAutoGrab}
 							onManualGrab={handleManualGrab}
+							preferOriginalTitleDefault={data.preferOriginalTitleDefault}
 						/>
 					{/if}
 
@@ -828,8 +866,18 @@
 	onMonitor={() => handleBulkMonitor(true)}
 	onUnmonitor={() => handleBulkMonitor(false)}
 	onChangeQuality={() => (isQualityModalOpen = true)}
+	onLanguage={() => (isLanguageModalOpen = true)}
 	onDelete={() => (isDeleteModalOpen = true)}
 	onClear={clearSelection}
+/>
+
+<!-- Bulk Language Profile Modal -->
+<BulkLanguageProfileModal
+	open={isLanguageModalOpen}
+	mediaType="series"
+	selectedIds={[...selectedSeries]}
+	onClose={() => (isLanguageModalOpen = false)}
+	onApplied={handleBulkLanguageApplied}
 />
 
 <!-- Bulk Quality Profile Modal -->

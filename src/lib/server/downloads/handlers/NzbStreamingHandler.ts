@@ -46,7 +46,10 @@ async function upsertEpisodeFileByPath(record: EpisodeFileUpsertInput): Promise<
 	}
 
 	const id = requestedId ?? randomUUID();
-	await db.insert(episodeFiles).values({ id, ...values });
+	await db
+		.insert(episodeFiles)
+		.values({ id, ...values })
+		.onConflictDoNothing();
 	return id;
 }
 
@@ -167,10 +170,11 @@ export class NzbStreamingHandler {
 						movie.path,
 						strmResult.filePath
 					);
-					const fileId = randomUUID();
 
-					await db.insert(movieFiles).values({
-						id: fileId,
+					// Upsert by (movieId, relativePath): .strm destinations are
+					// deterministic, so re-grabs update the existing row instead
+					// of stacking duplicates (movieFiles has a unique index).
+					const fileValues = {
 						movieId,
 						relativePath,
 						size: stats.size,
@@ -180,7 +184,18 @@ export class NzbStreamingHandler {
 						edition: parsedRelease.edition ?? undefined,
 						quality,
 						mediaInfo
+					};
+					let fileId: string;
+					const existingRow = await db.query.movieFiles.findFirst({
+						where: and(eq(movieFiles.movieId, movieId), eq(movieFiles.relativePath, relativePath))
 					});
+					if (existingRow) {
+						fileId = existingRow.id;
+						await db.update(movieFiles).set(fileValues).where(eq(movieFiles.id, fileId));
+					} else {
+						fileId = randomUUID();
+						await db.insert(movieFiles).values({ id: fileId, ...fileValues });
+					}
 
 					await db.update(movies).set({ hasFile: true }).where(eq(movies.id, movieId));
 

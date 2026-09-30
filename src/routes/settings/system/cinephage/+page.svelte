@@ -5,6 +5,7 @@
 	import { Sparkles, Loader2 } from 'lucide-svelte';
 	import { SettingsPage } from '$lib/components/ui/settings';
 	import * as m from '$lib/paraglide/messages.js';
+	import { ensureVersionPrefix } from '$lib/version.js';
 	import {
 		updateCinephageConfig,
 		updateCinephageModule,
@@ -37,6 +38,15 @@
 			await invalidateAll();
 		} catch {
 			toasts.add({ message: 'Failed to toggle Cinephage Network', type: 'error' });
+		}
+	}
+
+	async function handleToggleAutoUpdate() {
+		try {
+			await updateCinephageConfig({ autoUpdate: !config.autoUpdate });
+			await invalidateAll();
+		} catch {
+			toasts.add({ message: 'Failed to toggle auto update', type: 'error' });
 		}
 	}
 
@@ -134,7 +144,7 @@
 						</button>
 						<input
 							type="checkbox"
-							class="toggle toggle-lg"
+							class="toggle toggle-primary"
 							checked={config.enabled}
 							onchange={handleToggleSubsystem}
 						/>
@@ -155,7 +165,7 @@
 					<span class="text-sm text-base-content/60">
 						{m.settings_cinephage_detectedIdentity()}:
 						<span class="font-mono text-base-content/80">
-							v{identity.version}
+							{ensureVersionPrefix(identity.version)}
 							{#if identity.commit}
 								({identity.commit})
 							{:else}
@@ -164,7 +174,7 @@
 						</span>
 					</span>
 					<button
-						class="btn btn-outline btn-sm gap-1"
+						class="btn gap-1 btn-outline btn-sm"
 						onclick={handleFetchRelease}
 						disabled={fetchingRelease}
 					>
@@ -175,6 +185,29 @@
 						{/if}
 						{fetchingRelease ? 'Fetching...' : 'Fetch latest release'}
 					</button>
+				</div>
+
+				<div class="mt-3 flex flex-wrap items-center gap-4">
+					<span class="text-sm text-base-content/60">
+						{m.settings_cinephage_latestRelease()}:
+						{#if config.latestVersion}
+							<span class="font-mono text-base-content/80">
+								{ensureVersionPrefix(config.latestVersion)}
+								{#if config.latestCommit}({config.latestCommit}){/if}
+							</span>
+						{:else}
+							<span class="text-base-content/50">—</span>
+						{/if}
+					</span>
+					<label class="flex cursor-pointer items-center gap-2 text-sm">
+						<input
+							type="checkbox"
+							class="toggle toggle-primary toggle-sm"
+							checked={config.autoUpdate}
+							onchange={handleToggleAutoUpdate}
+						/>
+						{m.settings_cinephage_autoUpdate()}
+					</label>
 				</div>
 
 				<!-- Manual overrides -->
@@ -191,7 +224,7 @@
 								<span class="label-text text-sm">{m.settings_cinephage_versionOverride()}</span>
 								<input
 									type="text"
-									class="input input-bordered input-sm w-full"
+									class="input-bordered input w-full input-sm"
 									placeholder="Auto-detect"
 									bind:value={config.versionOverride}
 								/>
@@ -200,12 +233,12 @@
 								<span class="label-text text-sm">{m.settings_cinephage_commitOverride()}</span>
 								<input
 									type="text"
-									class="input input-bordered input-sm w-full"
+									class="input-bordered input w-full input-sm"
 									placeholder="Auto-detect"
 									bind:value={config.commitOverride}
 								/>
 							</label>
-							<button class="btn btn-sm btn-outline" onclick={handleSaveOverrides}>
+							<button class="btn btn-outline btn-sm" onclick={handleSaveOverrides}>
 								{m.settings_cinephage_saveSettings()}
 							</button>
 						</div>
@@ -234,7 +267,7 @@
 							</div>
 							<input
 								type="checkbox"
-								class="toggle toggle-sm"
+								class="toggle toggle-primary toggle-sm"
 								checked={mod.enabled}
 								disabled={!config.enabled}
 								onchange={() => handleToggleModule(mod.moduleId, mod.enabled)}
@@ -246,7 +279,7 @@
 								<label class="flex cursor-pointer items-center gap-2 text-sm">
 									<input
 										type="checkbox"
-										class="checkbox checkbox-sm"
+										class="checkbox checkbox-sm checkbox-primary"
 										checked={Boolean(mod.settings.useHttps)}
 										disabled={!config.enabled}
 										onchange={(e) =>
@@ -261,7 +294,7 @@
 									<span class="label-text text-sm">{m.settings_cinephage_externalHost()}</span>
 									<input
 										type="text"
-										class="input input-bordered input-sm"
+										class="input-bordered input input-sm"
 										placeholder="192.168.1.100:3000"
 										disabled={!config.enabled}
 										value={(mod.settings.externalHost as string) || ''}

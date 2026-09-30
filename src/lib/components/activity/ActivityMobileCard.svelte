@@ -76,7 +76,7 @@
 			{#if selectionMode}
 				<input
 					type="checkbox"
-					class="checkbox checkbox-xs"
+					class="checkbox checkbox-xs checkbox-primary"
 					checked={isSelected}
 					disabled={!isSelectable}
 					aria-label={`Select ${activity.mediaTitle}`}
@@ -218,7 +218,7 @@
 			{/if}
 
 			<button
-				class="btn btn-ghost btn-xs btn-error"
+				class="btn btn-ghost btn-error btn-xs"
 				onclick={() => onQueueAction('remove')}
 				disabled={isQueueActionLoading}
 			>

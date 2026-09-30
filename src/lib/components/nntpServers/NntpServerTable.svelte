@@ -201,7 +201,7 @@
 				<label class="flex items-center gap-2 text-xs font-medium">
 					<input
 						type="checkbox"
-						class="checkbox checkbox-sm"
+						class="checkbox checkbox-sm checkbox-primary"
 						checked={allSelected}
 						indeterminate={someSelected}
 						onchange={(e) => onSelectAll(e.currentTarget.checked)}
@@ -268,7 +268,7 @@
 						{:else}
 							<input
 								type="checkbox"
-								class="checkbox checkbox-sm"
+								class="checkbox checkbox-sm checkbox-primary"
 								checked={selectedIds.has(server.id)}
 								onchange={(e) => onSelect(server.id, e.currentTarget.checked)}
 							/>
@@ -372,7 +372,7 @@
 						<Settings class="h-4 w-4" />
 					</button>
 					<button
-						class="btn text-error btn-ghost btn-xs"
+						class="btn btn-ghost text-error btn-xs"
 						onclick={() => onDelete(server)}
 						title={m.common_delete()}
 						aria-label={m.nntpServer_deleteServer()}
@@ -416,7 +416,7 @@
 						{:else}
 							<input
 								type="checkbox"
-								class="checkbox checkbox-sm"
+								class="checkbox checkbox-sm checkbox-primary"
 								checked={allSelected}
 								indeterminate={someSelected}
 								onchange={(e) => onSelectAll(e.currentTarget.checked)}
@@ -493,7 +493,7 @@
 							{:else}
 								<input
 									type="checkbox"
-									class="checkbox checkbox-sm"
+									class="checkbox checkbox-sm checkbox-primary"
 									checked={selectedIds.has(server.id)}
 									onchange={(e) => onSelect(server.id, e.currentTarget.checked)}
 								/>
@@ -565,7 +565,7 @@
 									<Settings class="h-4 w-4" />
 								</button>
 								<button
-									class="btn text-error btn-ghost btn-xs"
+									class="btn btn-ghost text-error btn-xs"
 									onclick={() => onDelete(server)}
 									title="Delete server"
 								>

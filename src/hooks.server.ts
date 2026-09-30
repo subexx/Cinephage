@@ -135,6 +135,9 @@ const customHandler: Handle = async ({ event, resolve }) => {
 				if (path.startsWith('/api/streaming/usenet/')) {
 					return true;
 				}
+				if (path.startsWith('/api/streaming/library/')) {
+					return true;
+				}
 				return false;
 			}
 
@@ -150,6 +153,10 @@ const customHandler: Handle = async ({ event, resolve }) => {
 				if (path === '/api/ready' || path.startsWith('/api/ready/')) {
 					return true;
 				}
+				// Radarr/Sonarr's own /ping is unauthenticated.
+				if (path === '/api/radarr/ping' || path === '/api/sonarr/ping') {
+					return true;
+				}
 				return false;
 			}
 
@@ -157,7 +164,15 @@ const customHandler: Handle = async ({ event, resolve }) => {
 			let apiKey = null;
 
 			if (!isStreamingApiRoute) {
-				const apiKeyHeader = event.request.headers.get('x-api-key');
+				// Real Radarr/Sonarr accept the API key as either the X-Api-Key
+				// header or an `apikey` query parameter (see the real openapi.json
+				// securitySchemes) - arr clients like Jellyseerr/Overseerr (Seerr) use the
+				// query parameter for their Radarr/Sonarr connections, so the
+				// arr-compat routes need it accepted here too, not just the header.
+				const apiKeyHeader =
+					event.request.headers.get('x-api-key') ||
+					event.url.searchParams.get('apikey') ||
+					event.url.searchParams.get('api_key');
 				if (apiKeyHeader) {
 					try {
 						session = await auth.api.getSession({
@@ -214,6 +229,12 @@ const customHandler: Handle = async ({ event, resolve }) => {
 				if (isHealthRoute(path)) {
 					return true;
 				}
+				// Client error reports must be receivable pre-auth — crashes on
+				// /login happen before a session exists. The endpoint itself
+				// enforces same-origin + payload validation.
+				if (path === '/api/settings/logs/client-report') {
+					return true;
+				}
 				return false;
 			}
 
@@ -242,7 +263,8 @@ const customHandler: Handle = async ({ event, resolve }) => {
 				}
 
 				try {
-					const verifyResult = await auth.api.verifyApiKey({
+					// Accept either a streaming-scoped key or a full-access (main) key
+					let verifyResult = await auth.api.verifyApiKey({
 						body: {
 							key: apiKey,
 							permissions: {
@@ -252,13 +274,26 @@ const customHandler: Handle = async ({ event, resolve }) => {
 					});
 
 					if (!verifyResult.valid) {
+						// Fall back to main API key check. Main keys are created with
+						// { default: ['*'] }.
+						verifyResult = await auth.api.verifyApiKey({
+							body: {
+								key: apiKey,
+								permissions: {
+									default: ['*']
+								}
+							}
+						});
+					}
+
+					if (!verifyResult.valid) {
 						requestLogger.warn(
 							{
 								logDomain: 'auth',
 								endpoint: pathname,
 								error: verifyResult.error?.message || 'Invalid permissions'
 							},
-							'[Auth] Main API key attempted to access streaming endpoint'
+							'[Auth] API key does not have streaming or full-access permissions'
 						);
 
 						return json(

@@ -26,16 +26,7 @@ export type Source =
 	| 'unknown';
 
 export type Codec =
-	| 'av1'
-	| 'vvc'
-	| 'h265'
-	| 'h264'
-	| 'vp9'
-	| 'vc1'
-	| 'xvid'
-	| 'divx'
-	| 'mpeg2'
-	| 'unknown';
+	'av1' | 'vvc' | 'h265' | 'h264' | 'vp9' | 'vc1' | 'xvid' | 'divx' | 'mpeg2' | 'unknown';
 
 export type BitDepth = '8' | '10' | '12' | 'unknown';
 
@@ -133,10 +124,17 @@ export interface ParsedRelease {
 	episode?: EpisodeInfo;
 
 	// Additional metadata
-	/** Detected languages from title (ISO 639-1 codes) */
+	/**
+	 * Languages asserted by the release title (ISO 639-1 codes, plus the
+	 * pseudo-codes 'multi' and 'orig'). Empty when the title names no
+	 * language — absence of evidence is never expanded to 'en'.
+	 */
 	languages: string[];
 
-	/** Source indexer language (ISO 639-1 code) - where the release came from */
+	/**
+	 * Source indexer language (ISO 639-1 code) - where the release came from.
+	 * Source metadata only; never merged into `languages`.
+	 */
 	sourceLanguage?: string;
 
 	/** Detected streaming service tag (AMZN, NF, MA, etc.) */

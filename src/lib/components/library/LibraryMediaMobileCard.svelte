@@ -32,6 +32,8 @@
 		onManualGrab?: (id: string) => void;
 		onDelete: (id: string) => void;
 		onNavigate: () => void;
+		/** Instance default for items with no explicit prefer-original flag. */
+		preferOriginalTitleDefault?: boolean | null;
 	}
 
 	let {
@@ -46,12 +48,16 @@
 		onAutoGrab,
 		onManualGrab,
 		onDelete,
-		onNavigate
+		onNavigate,
+		preferOriginalTitleDefault = false
 	}: Props = $props();
 
 	const itemIsMovie = $derived(isMovie(item));
 	const size = $derived(getItemSize(item));
 	const qualityBadges = $derived(getQualityBadges(item, () => hasStreamerProfile));
+	const partiallyMonitored = $derived(
+		isSeries(item) && (item as LibrarySeries).partiallyMonitored === true
+	);
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -68,16 +74,20 @@
 		{#if selectable}
 			<input
 				type="checkbox"
-				class="checkbox checkbox-sm"
+				class="checkbox checkbox-sm checkbox-primary"
 				checked={selected}
 				onchange={(e) => onSelectChange(item.id, e.currentTarget.checked)}
 			/>
 		{/if}
 		<div class="flex flex-1 flex-wrap items-center gap-1.5">
 			{#if item.monitored}
-				<span class="badge gap-1.5 badge-sm badge-success">
+				<span
+					class="badge gap-1.5 badge-sm {partiallyMonitored ? 'badge-warning' : 'badge-success'}"
+				>
 					<Eye class="h-3.5 w-3.5" />
-					{m.library_monitorToggle_monitored()}
+					{partiallyMonitored
+						? m.library_monitorToggle_partiallyMonitored()
+						: m.library_monitorToggle_monitored()}
 				</span>
 			{:else}
 				<span class="badge gap-1.5 badge-sm badge-neutral">
@@ -136,7 +146,7 @@
 
 		<div class="min-w-0 flex-1">
 			<span class="line-clamp-2 text-sm font-medium">
-				{displayTitle(item)}
+				{displayTitle(item, preferOriginalTitleDefault)}
 			</span>
 			{#if itemIsMovie && 'collectionName' in item && item.collectionName}
 				<span class="mt-1 badge badge-outline badge-xs">{item.collectionName}</span>
@@ -221,7 +231,7 @@
 			</button>
 		{/if}
 		<button
-			class="btn shrink-0 gap-1 btn-ghost btn-xs btn-error"
+			class="btn shrink-0 gap-1 btn-ghost btn-error btn-xs"
 			onclick={() => onDelete(item.id)}
 			disabled={isLoading}
 		>

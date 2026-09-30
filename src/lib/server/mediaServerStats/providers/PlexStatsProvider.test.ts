@@ -108,6 +108,7 @@ describe('PlexStatsProvider', () => {
 		mockFetch.mockResolvedValueOnce(mockSectionsResponse());
 		mockFetch.mockResolvedValueOnce(mockEmptyLibrary('1'));
 		mockFetch.mockResolvedValueOnce(mockEmptyLibrary('2'));
+		mockFetch.mockResolvedValueOnce(mockEmptyLibrary('2'));
 
 		const provider = new PlexStatsProvider(mockConfig);
 		await provider.fetchAllItems();
@@ -168,6 +169,7 @@ describe('PlexStatsProvider', () => {
 		mockFetch.mockResolvedValueOnce(
 			mockSectionsResponse([{ key: '2', type: 'show', title: 'TV Shows' }])
 		);
+		mockFetch.mockResolvedValueOnce(mockEmptyLibrary('2'));
 		mockFetch.mockResolvedValueOnce(
 			mockFetchResponse({
 				MediaContainer: { Metadata: [episode], totalSize: 1 }
@@ -258,8 +260,121 @@ describe('PlexStatsProvider', () => {
 		expect(item.containerFormat).toBe('mkv');
 		expect(item.fileSize).toBe(8589934592);
 		expect(item.bitrate).toBe(20000);
-		expect(item.audioLanguages).toEqual(['eng', 'fre']);
-		expect(item.subtitleLanguages).toEqual(['eng', 'spa']);
+		expect(item.audioLanguages).toEqual(['en', 'fr']);
+		expect(item.subtitleLanguages).toEqual(['en', 'es']);
+		// Untouched source language codes are preserved alongside the tags.
+		expect(item.audioLanguagesRaw).toEqual(['eng', 'fre']);
+		expect(item.subtitleLanguagesRaw).toEqual(['eng', 'spa']);
+	});
+
+	it('should enumerate streams across all Media parts deterministically', async () => {
+		// Multi-version item: version 1 (two parts) carries eng + fre audio and an
+		// eng sub; version 2 repeats eng, adds jpn audio (flagged default) and spa
+		// subs. Parts are walked in order; duplicates collapse onto first-seen.
+		const multiPartMovie = {
+			ratingKey: '300',
+			title: 'Multi Part Movie',
+			year: 2024,
+			viewCount: 1,
+			Media: [
+				{
+					videoResolution: '1080',
+					videoCodec: 'h264',
+					audioCodec: 'dts',
+					audioChannels: 6,
+					container: 'mkv',
+					bitrate: 20000,
+					width: 1920,
+					height: 1080,
+					Part: [
+						{
+							size: 1000,
+							Stream: [
+								{ streamType: 1, codec: 'h264' },
+								{ streamType: 2, codec: 'dts', channels: 6, languageCode: 'eng' },
+								{ streamType: 2, codec: 'aac', channels: 2, languageCode: 'fre', default: 1 }
+							]
+						},
+						{
+							size: 500,
+							Stream: [
+								{ streamType: 2, codec: 'eac3', channels: 6, languageCode: 'eng' },
+								{ streamType: 3, languageCode: 'eng' }
+							]
+						}
+					]
+				},
+				{
+					container: 'mp4',
+					Part: [
+						{
+							Stream: [
+								{ streamType: 2, codec: 'flac', channels: 2, languageCode: 'jpn', default: 1 },
+								{ streamType: 3, languageCode: 'spa', selected: 1 }
+							]
+						}
+					]
+				}
+			]
+		};
+
+		mockFetch.mockResolvedValueOnce(
+			mockSectionsResponse([{ key: '1', type: 'movie', title: 'Movies' }])
+		);
+		mockFetch.mockResolvedValueOnce(
+			mockFetchResponse({ MediaContainer: { Metadata: [multiPartMovie], totalSize: 1 } })
+		);
+
+		const provider = new PlexStatsProvider(mockConfig);
+		const result = await provider.fetchAllItems();
+
+		const item = result.items[0];
+		// First-seen order across Media versions and parts; duplicates dropped.
+		expect(item.audioLanguages).toEqual(['en', 'fr', 'ja']);
+		expect(item.audioLanguagesRaw).toEqual(['eng', 'fre', 'jpn']);
+		expect(item.subtitleLanguages).toEqual(['en', 'es']);
+		expect(item.subtitleLanguagesRaw).toEqual(['eng', 'spa']);
+		// Primary audio = first default-flagged stream (the fre aac track), so
+		// codec/channels come from it — not from the first eng track.
+		expect(item.audioCodec).toBe('aac');
+		expect(item.audioChannels).toBe(2);
+		// Media-level fields still come from the first Media version.
+		expect(item.containerFormat).toBe('mkv');
+		expect(item.fileSize).toBe(1000);
+		expect(item.width).toBe(1920);
+	});
+
+	it('should pick the first stream as primary when nothing is flagged', async () => {
+		const unflaggedMovie = {
+			ratingKey: '301',
+			title: 'Unflagged Movie',
+			Media: [
+				{
+					container: 'mkv',
+					Part: [
+						{
+							Stream: [
+								{ streamType: 2, codec: 'dts', channels: 6, languageCode: 'eng' },
+								{ streamType: 2, codec: 'aac', channels: 2, languageCode: 'fre' }
+							]
+						}
+					]
+				}
+			]
+		};
+
+		mockFetch.mockResolvedValueOnce(
+			mockSectionsResponse([{ key: '1', type: 'movie', title: 'Movies' }])
+		);
+		mockFetch.mockResolvedValueOnce(
+			mockFetchResponse({ MediaContainer: { Metadata: [unflaggedMovie], totalSize: 1 } })
+		);
+
+		const provider = new PlexStatsProvider(mockConfig);
+		const result = await provider.fetchAllItems();
+
+		expect(result.items[0].audioCodec).toBe('dts');
+		expect(result.items[0].audioChannels).toBe(6);
 	});
 
 	it('should detect HDR from colorTrc field', async () => {
@@ -481,5 +596,115 @@ describe('PlexStatsProvider', () => {
 		const result = await provider.fetchAllItems();
 
 		expect(result.items[0].lastPlayedDate).toBe(new Date(epochValue * 1000).toISOString());
+	});
+});
+
+describe('PlexStatsProvider episode series-id resolution', () => {
+	let mockFetch: ReturnType<typeof vi.fn>;
+
+	beforeEach(() => {
+		mockFetch = vi.fn();
+		vi.stubGlobal('fetch', mockFetch);
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	function makeShow(overrides: Record<string, any> = {}) {
+		return {
+			ratingKey: '300',
+			title: 'Test Series',
+			type: 'show',
+			Guid: [{ id: 'tmdb://555' }, { id: 'tvdb://777' }],
+			...overrides
+		};
+	}
+
+	function makeEpisode(overrides: Record<string, any> = {}) {
+		return {
+			ratingKey: '200',
+			title: 'Test Episode',
+			year: 2023,
+			grandparentTitle: 'Test Series',
+			grandparentRatingKey: '300',
+			parentIndex: 1,
+			index: 5,
+			viewCount: 2,
+			lastViewedAt: 1704067200,
+			duration: 2700000,
+			Media: [
+				{
+					videoCodec: 'h264',
+					container: 'mp4',
+					Part: [{ size: 1073741824, Stream: [] }]
+				}
+			],
+			...overrides
+		};
+	}
+
+	async function fetchWithShowsAndEpisodes(episodes: any[], shows: any[] = [makeShow()]) {
+		mockFetch.mockResolvedValueOnce(
+			mockSectionsResponse([{ key: '2', type: 'show', title: 'TV Shows' }])
+		);
+		mockFetch.mockResolvedValueOnce(
+			mockFetchResponse({
+				MediaContainer: { Metadata: shows, totalSize: shows.length }
+			})
+		);
+		mockFetch.mockResolvedValueOnce(
+			mockFetchResponse({
+				MediaContainer: { Metadata: episodes, totalSize: episodes.length }
+			})
+		);
+
+		const provider = new PlexStatsProvider(mockConfig);
+		return provider.fetchAllItems();
+	}
+
+	it('replaces episode-scoped tmdb guids with the parent series tmdbId', async () => {
+		// Per Plex's metadata provider spec, episode Guid arrays carry
+		// EPISODE-scoped ids (e.g. tmdb://1418023), not the series id.
+		const episode = makeEpisode({
+			Guid: [{ id: 'tmdb://1418023' }, { id: 'tvdb://6179251' }, { id: 'imdb://tt7308394' }]
+		});
+
+		const result = await fetchWithShowsAndEpisodes([episode]);
+
+		expect(result.items[0].tmdbId).toBe(555);
+	});
+
+	it('backfills the series tmdbId when the episode carries no tmdb guid', async () => {
+		const episode = makeEpisode({ Guid: [{ id: 'tvdb://6179251' }] });
+
+		const result = await fetchWithShowsAndEpisodes([episode]);
+
+		expect(result.items[0].tmdbId).toBe(555);
+		expect(result.items[0].tvdbId).toBe(6179251);
+	});
+
+	it('keeps episode-level tvdb and imdb ids from the episode itself', async () => {
+		const episode = makeEpisode({
+			Guid: [{ id: 'tmdb://1418023' }, { id: 'tvdb://6179251' }, { id: 'imdb://tt7308394' }]
+		});
+
+		const result = await fetchWithShowsAndEpisodes([episode]);
+
+		expect(result.items[0].tvdbId).toBe(6179251);
+		expect(result.items[0].imdbId).toBe('tt7308394');
+	});
+
+	it('yields null tmdbId rather than an unresolvable episode-scoped id when the show has no tmdb guid', async () => {
+		const episode = makeEpisode({
+			Guid: [{ id: 'tmdb://1418023' }]
+		});
+
+		const result = await fetchWithShowsAndEpisodes(
+			[episode],
+			[makeShow({ Guid: [{ id: 'tvdb://777' }] })]
+		);
+
+		expect(result.items[0].tmdbId).toBeNull();
 	});
 });

@@ -296,7 +296,7 @@
 	<!-- Clear Ignored Button -->
 	{#if statusFilter === 'ignored' && results.some((r) => r.status === 'ignored')}
 		<div class="mb-4">
-			<button class="btn btn-outline btn-sm btn-error" onclick={clearIgnored} disabled={clearing}>
+			<button class="btn btn-outline btn-error btn-sm" onclick={clearIgnored} disabled={clearing}>
 				{#if clearing}
 					<Loader2 class="h-4 w-4 animate-spin" />
 				{:else}
@@ -342,7 +342,7 @@
 							<th class="w-12">
 								<input
 									type="checkbox"
-									class="checkbox checkbox-sm"
+									class="checkbox checkbox-sm checkbox-primary"
 									checked={allSelected}
 									onchange={toggleSelectAll}
 								/>
@@ -371,7 +371,7 @@
 								<td>
 									<input
 										type="checkbox"
-										class="checkbox checkbox-sm"
+										class="checkbox checkbox-sm checkbox-primary"
 										checked={selectedIds.has(result.id)}
 										onchange={() => toggleSelection(result.id)}
 									/>
@@ -437,7 +437,7 @@
 								<td>
 									<div class="flex justify-end gap-1">
 										<button
-											class="btn text-success btn-ghost btn-sm"
+											class="btn btn-ghost text-success btn-sm"
 											onclick={() => {
 												selectedIds.clear();
 												selectedIds.add(result.id);

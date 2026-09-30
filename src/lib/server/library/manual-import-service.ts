@@ -12,6 +12,7 @@ import { parseRelease, extractExternalIds } from '$lib/server/indexers/parser/Re
 import { isVideoFile, mediaInfoService, MediaInfoService } from '$lib/server/library/media-info.js';
 import { unmatchedFileService } from '$lib/server/library/unmatched-file-service.js';
 import { namingSettingsService } from '$lib/server/library/naming/NamingSettingsService.js';
+import { resolveLocalizedTitlesForFormats } from '$lib/server/library/naming/localization.js';
 import {
 	NamingService,
 	releaseToNamingInfo,
@@ -32,9 +33,14 @@ import {
 } from '$lib/server/library/LibraryAddService.js';
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { isLikelyAnimeMedia } from '$lib/shared/anime-classification.js';
+import { getMediaParseStem } from '$lib/server/library/media-utils.js';
+import {
+	canonicalizeArticleTitle,
+	calculateMatchConfidence,
+	normalizeTitleForMatch
+} from './title-matching.js';
 import {
 	extractSeasonFromPath,
-	getMediaParseStem,
 	resolveTvEpisodeIdentifier
 } from '$lib/server/library/tv-episode-resolver.js';
 
@@ -406,10 +412,10 @@ export class ManualImportService {
 			return;
 		}
 
-		const normalizedCandidate = this.normalizeTitle(trimmed);
+		const normalizedCandidate = normalizeTitleForMatch(trimmed);
 		if (!normalizedCandidate) return;
 		const alreadyIncluded = target.some(
-			(existing) => this.normalizeTitle(existing) === normalizedCandidate
+			(existing) => normalizeTitleForMatch(existing) === normalizedCandidate
 		);
 		if (alreadyIncluded) return;
 		target.push(trimmed);
@@ -805,6 +811,7 @@ export class ManualImportService {
 				throw new Error('Selected movie root folder is missing or invalid');
 			}
 
+			const localizedTitles = await resolveLocalizedTitlesForFormats('movie', request.tmdbId);
 			return {
 				rootFolder,
 				folderName: movie.path,
@@ -814,7 +821,8 @@ export class ManualImportService {
 					year: movie.year ?? undefined,
 					tmdbId: request.tmdbId,
 					imdbId: movie.imdbId ?? undefined,
-					collectionName: movie.collectionName ?? undefined
+					collectionName: movie.collectionName ?? undefined,
+					localizedTitles
 				}
 			};
 		}
@@ -833,6 +841,7 @@ export class ManualImportService {
 		});
 
 		await validateRootFolder(destinationRootFolderId, 'movie', {
+			requireWritable: true,
 			enforceAnimeSubtype,
 			isAnimeMedia,
 			mediaTitle: tmdbMovie.title
@@ -853,13 +862,15 @@ export class ManualImportService {
 		const year = tmdbMovie.release_date
 			? parseInt(tmdbMovie.release_date.split('-')[0], 10)
 			: undefined;
+		const localizedTitles = await resolveLocalizedTitlesForFormats('movie', request.tmdbId);
 		const folderName = this.namingService.generateMovieFolderName({
 			title: tmdbMovie.title,
 			originalTitle: tmdbMovie.original_title || undefined,
 			year,
 			tmdbId: request.tmdbId,
 			imdbId: externalIds.imdb_id ?? undefined,
-			collectionName: tmdbMovie.belongs_to_collection?.name ?? undefined
+			collectionName: tmdbMovie.belongs_to_collection?.name ?? undefined,
+			localizedTitles
 		});
 
 		return {
@@ -871,7 +882,8 @@ export class ManualImportService {
 				year,
 				tmdbId: request.tmdbId,
 				imdbId: externalIds.imdb_id ?? undefined,
-				collectionName: tmdbMovie.belongs_to_collection?.name ?? undefined
+				collectionName: tmdbMovie.belongs_to_collection?.name ?? undefined,
+				localizedTitles
 			}
 		};
 	}
@@ -920,6 +932,7 @@ export class ManualImportService {
 				throw new Error('Selected series root folder is missing or invalid');
 			}
 
+			const localizedTitles = await resolveLocalizedTitlesForFormats('series', request.tmdbId);
 			return {
 				rootFolder,
 				seriesFolderName: show.path,
@@ -933,7 +946,8 @@ export class ManualImportService {
 					tvdbId: show.tvdbId ?? undefined,
 					imdbId: show.imdbId ?? undefined,
 					isAnime: show.seriesType === 'anime',
-					isDaily: show.seriesType === 'daily'
+					isDaily: show.seriesType === 'daily',
+					localizedTitles
 				}
 			};
 		}
@@ -952,6 +966,7 @@ export class ManualImportService {
 		});
 
 		await validateRootFolder(destinationRootFolderId, 'tv', {
+			requireWritable: true,
 			enforceAnimeSubtype,
 			isAnimeMedia,
 			mediaTitle: tvShow.name
@@ -973,13 +988,15 @@ export class ManualImportService {
 		const year = tvShow.first_air_date
 			? parseInt(tvShow.first_air_date.split('-')[0], 10)
 			: undefined;
+		const localizedTitles = await resolveLocalizedTitlesForFormats('series', request.tmdbId);
 		const seriesFolderName = this.namingService.generateSeriesFolderName({
 			title: tvShow.name,
 			originalTitle: tvShow.original_name || undefined,
 			year,
 			tmdbId: request.tmdbId,
 			tvdbId: externalIds.tvdb_id ?? undefined,
-			imdbId: externalIds.imdb_id ?? undefined
+			imdbId: externalIds.imdb_id ?? undefined,
+			localizedTitles
 		});
 
 		return {
@@ -994,7 +1011,8 @@ export class ManualImportService {
 				tmdbId: request.tmdbId,
 				tvdbId: externalIds.tvdb_id ?? undefined,
 				imdbId: externalIds.imdb_id ?? undefined,
-				isAnime: rootFolder.mediaSubType === 'anime' || isAnimeMedia
+				isAnime: rootFolder.mediaSubType === 'anime' || isAnimeMedia,
+				localizedTitles
 			}
 		};
 	}
@@ -1431,8 +1449,9 @@ export class ManualImportService {
 
 		if (resolved?.numbering === 'standard') {
 			return {
-				seasonNumber: resolved.seasonNumber,
-				episodeNumbers: resolved.episodeNumbers
+				seasonNumber: request.seasonNumber ?? resolved.seasonNumber,
+				episodeNumbers:
+					request.episodeNumber != null ? [request.episodeNumber] : resolved.episodeNumbers
 			};
 		}
 
@@ -1933,14 +1952,17 @@ export class ManualImportService {
 			const aggregatedMatches = new Map<number, SuggestedMatch>();
 
 			for (const candidate of candidates) {
-				const cacheKey = `${mediaType}:${year ?? 'na'}:${candidate.toLowerCase()}`;
+				// Canonicalize inverted-article candidates ("Lion King, The") so
+				// the TMDB query and confidence scoring use the canonical form.
+				const canonicalCandidate = canonicalizeArticleTitle(candidate);
+				const cacheKey = `${mediaType}:${year ?? 'na'}:${canonicalCandidate.toLowerCase()}`;
 				let cachedMatches = matchCache?.get(cacheKey);
 
 				if (!cachedMatches) {
 					const results =
 						mediaType === 'movie'
-							? await tmdb.searchMovies(candidate, year, true)
-							: await tmdb.searchTv(candidate, year, true);
+							? await tmdb.searchMovies(canonicalCandidate, year, true)
+							: await tmdb.searchTv(canonicalCandidate, year, true);
 
 					cachedMatches =
 						results.results?.slice(0, 10).map((result) => {
@@ -1952,7 +1974,13 @@ export class ManualImportService {
 								tmdbId: result.id,
 								title: resultTitle,
 								year: resultYear,
-								confidence: this.calculateMatchConfidence(candidate, year, resultTitle, resultYear),
+								confidence: this.calculateMatchConfidence(
+									canonicalCandidate,
+									year,
+									resultTitle,
+									resultYear,
+									result.original_title ?? result.original_name
+								),
 								mediaType,
 								isAnime: this.classifyTmdbResultAnime(result, mediaType)
 							} satisfies SuggestedMatch;
@@ -2149,61 +2177,18 @@ export class ManualImportService {
 		parsedTitle: string,
 		parsedYear: number | undefined,
 		tmdbTitle: string,
-		tmdbYear: number | undefined
+		tmdbYear: number | undefined,
+		tmdbOriginalTitle?: string
 	): number {
-		let score = this.calculateSimilarity(parsedTitle, tmdbTitle);
-
-		if (parsedYear && tmdbYear && parsedYear === tmdbYear) {
-			score = Math.min(1, score + 0.2);
-		} else if (parsedYear && tmdbYear && Math.abs(parsedYear - tmdbYear) > 1) {
-			score = score * 0.7;
-		}
-
-		const normalizedParsed = this.normalizeTitle(parsedTitle);
-		const normalizedTmdb = this.normalizeTitle(tmdbTitle);
-		if (normalizedParsed === normalizedTmdb) {
-			score = Math.max(score, 0.95);
-		}
-
-		return Math.round(score * 100) / 100;
-	}
-
-	private calculateSimilarity(a: string, b: string): number {
-		const s1 = a.toLowerCase().trim();
-		const s2 = b.toLowerCase().trim();
-
-		if (s1 === s2) return 1;
-		if (!s1 || !s2) return 0;
-
-		const matrix: number[][] = [];
-		for (let i = 0; i <= s1.length; i++) {
-			matrix[i] = [i];
-		}
-		for (let j = 0; j <= s2.length; j++) {
-			matrix[0][j] = j;
-		}
-
-		for (let i = 1; i <= s1.length; i++) {
-			for (let j = 1; j <= s2.length; j++) {
-				const cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
-				matrix[i][j] = Math.min(
-					matrix[i - 1][j] + 1,
-					matrix[i][j - 1] + 1,
-					matrix[i - 1][j - 1] + cost
-				);
-			}
-		}
-
-		const distance = matrix[s1.length][s2.length];
-		const maxLength = Math.max(s1.length, s2.length);
-		return 1 - distance / maxLength;
-	}
-
-	private normalizeTitle(title: string): string {
-		return title
-			.toLowerCase()
-			.replace(/^(the|an?)\s+/i, '') // Remove leading articles before stripping spaces
-			.replace(/[^a-z0-9]/g, '');
+		// Delegates to the shared title-matching primitives (kept in sync with
+		// MediaMatcherService).
+		return calculateMatchConfidence(
+			parsedTitle,
+			parsedYear,
+			tmdbTitle,
+			tmdbYear,
+			tmdbOriginalTitle
+		);
 	}
 }
 

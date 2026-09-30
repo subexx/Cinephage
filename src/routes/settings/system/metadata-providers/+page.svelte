@@ -122,7 +122,7 @@
 					{m.settings_integrations_notConfigured()}
 				</div>
 			{/if}
-			<button onclick={openTmdbModal} class="btn gap-1 btn-sm btn-primary">
+			<button onclick={openTmdbModal} class="btn gap-1 btn-primary btn-sm">
 				{data.tmdb.hasApiKey ? m.action_update() : m.action_configure()}
 				<ChevronRight class="h-4 w-4" />
 			</button>
@@ -163,7 +163,7 @@
 					Disabled
 				</div>
 			{/if}
-			<button onclick={openEnrichmentModal} class="btn gap-1 btn-sm btn-primary">
+			<button onclick={openEnrichmentModal} class="btn gap-1 btn-primary btn-sm">
 				Configure
 				<ChevronRight class="h-4 w-4" />
 			</button>
@@ -232,7 +232,11 @@
 				search coverage, and the adult classification used for XXX category searches.
 			</p>
 			<label class="label cursor-pointer justify-start gap-3">
-				<input type="checkbox" class="checkbox" bind:checked={animeEnrichmentEnabled} />
+				<input
+					type="checkbox"
+					class="checkbox checkbox-primary"
+					bind:checked={animeEnrichmentEnabled}
+				/>
 				<span class="label-text">Enable anime metadata enrichment</span>
 			</label>
 			{#if enrichmentError}

@@ -85,7 +85,7 @@ class WorkerManagerImpl extends EventEmitter {
 			this.emitEvent({ type: 'removed', workerId: id });
 			logger.debug(
 				{
-					logDomain: 'main',
+					logDomain: 'system',
 					workerId: id
 				},
 				`Cleaned up completed worker`
@@ -131,7 +131,7 @@ class WorkerManagerImpl extends EventEmitter {
 
 		logger.info(
 			{
-				logDomain: 'main',
+				logDomain: 'system',
 				workerId: worker.id,
 				workerType: worker.type
 			},
@@ -194,7 +194,7 @@ class WorkerManagerImpl extends EventEmitter {
 					{
 						err: error,
 						...{
-							logDomain: 'main',
+							logDomain: 'system',
 							workerId: worker.id
 						}
 					},
@@ -301,7 +301,6 @@ class WorkerManagerImpl extends EventEmitter {
 			scan: { active: 0, completed: 0, failed: 0 },
 			monitoring: { active: 0, completed: 0, failed: 0 },
 			search: { active: 0, completed: 0, failed: 0 },
-			'subtitle-search': { active: 0, completed: 0, failed: 0 },
 			'portal-scan': { active: 0, completed: 0, failed: 0 },
 			'channel-sync': { active: 0, completed: 0, failed: 0 }
 		};
@@ -341,7 +340,7 @@ class WorkerManagerImpl extends EventEmitter {
 
 		logger.info(
 			{
-				logDomain: 'main',
+				logDomain: 'system',
 				config: this.config
 			},
 			`Worker manager config updated`
@@ -364,7 +363,7 @@ class WorkerManagerImpl extends EventEmitter {
 		}
 
 		this.workers.clear();
-		logger.info({ logDomain: 'main' }, `Worker manager shut down`);
+		logger.info({ logDomain: 'system' }, `Worker manager shut down`);
 	}
 }
 

@@ -14,6 +14,8 @@
 		selected?: boolean;
 		onSelectChange?: (id: string, selected: boolean) => void;
 		collectionName?: string;
+		/** Instance default for items with no explicit prefer-original flag. */
+		preferOriginalTitleDefault?: boolean | null;
 	}
 
 	let {
@@ -21,7 +23,8 @@
 		selectable = false,
 		selected = false,
 		onSelectChange,
-		collectionName
+		collectionName,
+		preferOriginalTitleDefault = false
 	}: Props = $props();
 
 	function handleCheckboxClick(e: MouseEvent) {
@@ -55,6 +58,9 @@
 	const episodeCount = $derived(!isMovie ? (item as LibrarySeries).episodeCount : 0);
 	const episodeFileCount = $derived(!isMovie ? (item as LibrarySeries).episodeFileCount : 0);
 	const missingRootFolder = $derived(item.missingRootFolder === true);
+	const partiallyMonitored = $derived(
+		!isMovie && (item as LibrarySeries).partiallyMonitored === true
+	);
 
 	// Quality badge display
 	const qualityBadge = $derived(() => {
@@ -104,9 +110,15 @@
 		<!-- Monitored status -->
 		<div
 			class="badge border-none badge-sm shadow-sm {item.monitored
-				? 'bg-success/80 text-success-content'
+				? partiallyMonitored
+					? 'bg-warning/80 text-warning-content'
+					: 'bg-success/80 text-success-content'
 				: 'bg-base-300/80 text-base-content/60'}"
-			title={item.monitored ? m.library_mediaCard_monitored() : m.library_mediaCard_notMonitored()}
+			title={item.monitored
+				? partiallyMonitored
+					? m.library_mediaCard_partiallyMonitored()
+					: m.library_mediaCard_monitored()
+				: m.library_mediaCard_notMonitored()}
 		>
 			{#if item.monitored}
 				<Eye class="h-3 w-3" />
@@ -195,7 +207,7 @@
 			class="translate-y-4 transform transition-transform duration-300 group-hover:translate-y-0"
 		>
 			<h3 class="line-clamp-2 text-sm leading-tight font-bold text-white">
-				{displayTitle(item)}
+				{displayTitle(item, preferOriginalTitleDefault)}
 			</h3>
 			<div class="mt-1 flex items-center justify-between gap-2">
 				{#if item.year}

@@ -5,13 +5,13 @@ import { series, seasons, episodes, rootFolders } from '$lib/server/db/schema.js
 import { eq } from 'drizzle-orm';
 import { tmdb } from '$lib/server/tmdb.js';
 import { addSeriesSchema } from '$lib/validation/schemas.js';
+import { getLanguageProfileService } from '$lib/server/subtitles/services/LanguageProfileService.js';
 import {
 	fetchSeriesDetails,
 	fetchSeriesExternalIds,
 	validateRootFolder,
 	getAnimeSubtypeEnforcement,
 	getEffectiveScoringProfileId,
-	getLanguageProfileId,
 	triggerSeriesSearch
 } from '$lib/server/library/LibraryAddService.js';
 import { isLikelyAnimeMedia } from '$lib/shared/anime-classification.js';
@@ -21,34 +21,40 @@ import {
 	buildSeasonsAndEpisodesFromGroup
 } from '$lib/server/metadata/EpisodeGroupService.js';
 import { ValidationError, isAppError } from '$lib/errors';
-import { logger } from '$lib/logging';
 import { requireAuth } from '$lib/server/auth/authorization.js';
 import { NamingService, type MediaNamingInfo } from '$lib/server/library/naming/NamingService.js';
 import { namingSettingsService } from '$lib/server/library/naming/NamingSettingsService.js';
+import { resolveLocalizedTitlesForFormats } from '$lib/server/library/naming/localization.js';
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents.js';
+import { createChildLogger } from '$lib/logging';
+
+const logger = createChildLogger({ module: 'LibrarySeriesApi', logDomain: 'scans' });
 
 /**
  * Generate a folder name for a series using the naming service
  * Uses database naming configuration instead of defaults
  */
-function generateSeriesFolderName(
+async function generateSeriesFolderName(
 	title: string,
 	year?: number,
 	tvdbId?: number,
 	tmdbId?: number,
 	imdbId?: string,
 	originalTitle?: string
-): string {
+): Promise<string> {
 	const config = namingSettingsService.getConfigSync();
 	const namingService = new NamingService(config);
+	// Parity with rename preview: localized-title tokens resolve at add time.
+	const localizedTitles = tmdbId ? await resolveLocalizedTitlesForFormats('series', tmdbId) : {};
 	const info: MediaNamingInfo = {
 		title,
 		originalTitle,
 		year,
 		tvdbId,
 		tmdbId,
-		imdbId
+		imdbId,
+		localizedTitles
 	};
 	return namingService.generateSeriesFolderName(info);
 }
@@ -152,8 +158,21 @@ export const POST: RequestHandler = async (event) => {
 			monitorSpecials,
 			monitoredSeasons: selectedSeasons,
 			searchOnAdd: shouldSearch,
-			wantsSubtitles
+			wantsSubtitles,
+			languageProfileId,
+			subtitleRequirementsOverride
 		} = result.data;
+
+		// A client-provided language profile must exist.
+		if (languageProfileId) {
+			const languageProfile = await getLanguageProfileService().getProfile(languageProfileId);
+			if (!languageProfile) {
+				return json(
+					{ success: false, error: `Language profile not found: ${languageProfileId}` },
+					{ status: 400 }
+				);
+			}
+		}
 
 		// Check if series already exists
 		const existingSeries = await db
@@ -187,6 +206,7 @@ export const POST: RequestHandler = async (event) => {
 
 		// Verify root folder exists and is for TV (with optional anime subtype enforcement)
 		await validateRootFolder(rootFolderId, 'tv', {
+			requireWritable: true,
 			enforceAnimeSubtype,
 			isAnimeMedia,
 			mediaTitle: tvDetails.name
@@ -203,7 +223,7 @@ export const POST: RequestHandler = async (event) => {
 		const year = tvDetails.first_air_date
 			? new Date(tvDetails.first_air_date).getFullYear()
 			: undefined;
-		const folderName = generateSeriesFolderName(
+		const folderName = await generateSeriesFolderName(
 			tvDetails.name,
 			year,
 			tvdbId ?? undefined,
@@ -219,10 +239,7 @@ export const POST: RequestHandler = async (event) => {
 				.reduce((sum, s) => sum + (s.episode_count ?? 0), 0) ?? 0;
 
 		// Get the effective scoring profile (shared logic)
-		const effectiveProfileId = await getEffectiveScoringProfileId(scoringProfileId);
-
-		// Get the language profile if subtitles wanted (shared logic)
-		const languageProfileId = await getLanguageProfileId(wantsSubtitles, tmdbId);
+		const effectiveProfileId = await getEffectiveScoringProfileId(scoringProfileId, owningLibrary);
 
 		// Auto-select episode group for correct season ordering (e.g. TVDB order for anime)
 		const { group: episodeGroup, selectedGroupId: episodeGroupId } = await getEffectiveEpisodeGroup(
@@ -238,6 +255,7 @@ export const POST: RequestHandler = async (event) => {
 				tvdbId,
 				imdbId,
 				title: tvDetails.name,
+				originalLanguage: tvDetails.original_language,
 				originalTitle: tvDetails.original_name,
 				year,
 				overview: tvDetails.overview,
@@ -258,7 +276,8 @@ export const POST: RequestHandler = async (event) => {
 				episodeCount: totalEpisodes,
 				episodeFileCount: 0,
 				wantsSubtitles,
-				languageProfileId,
+				languageProfileId: languageProfileId ?? null,
+				subtitleRequirementsOverride: subtitleRequirementsOverride ?? null,
 				episodeGroupId
 			})
 			.returning();

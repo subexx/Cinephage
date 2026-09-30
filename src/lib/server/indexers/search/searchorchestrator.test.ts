@@ -98,6 +98,11 @@ type OrchestratorPrivateApi = {
 	): ReleaseResult[];
 	isSeasonOnlyTvSearch(criteria: SearchCriteria): boolean;
 	filterByIdOrTitleMatch(releases: ReleaseResult[], criteria: SearchCriteria): ReleaseResult[];
+	executeSeasonPackSupplementalSearch(
+		indexer: IIndexer,
+		criteria: SearchCriteria,
+		seenReleases: ReleaseResult[]
+	): Promise<ReleaseResult[]>;
 	filterOutNonVideoArtifacts(releases: ReleaseResult[], criteria: SearchCriteria): ReleaseResult[];
 	filterIndexers(
 		indexers: IIndexer[],
@@ -216,6 +221,82 @@ describe('SearchOrchestrator.executeMultiTitleTextSearch', () => {
 		expect(queries.some((q) => q.includes('The Matrix'))).toBe(true);
 		expect(captured.some((c) => isMovieSearch(c) && c.year === 1999)).toBe(true);
 		expect(captured.some((c) => isMovieSearch(c) && c.year === undefined)).toBe(true);
+	});
+
+	it('returns movie results without waiting for slower redundant variants', async () => {
+		const orchestrator = new SearchOrchestrator();
+		let releaseSlowVariant!: () => void;
+		const slowGate = new Promise<void>((resolve) => {
+			releaseSlowVariant = resolve;
+		});
+
+		const fakeIndexer = buildIndexer({
+			search: async (criteria) => {
+				if (isMovieSearch(criteria) && criteria.year !== undefined) {
+					await slowGate;
+					return [];
+				}
+				return [createRelease({ guid: 'grown-ups-noyear', title: 'Grown Ups 2 2013 1080p' })];
+			}
+		});
+
+		const criteria = createMovieCriteria({ query: 'Grown Ups 2', year: 2013 });
+		const searchPromise = privateApi(orchestrator).executeMultiTitleTextSearch(
+			fakeIndexer,
+			criteria
+		);
+
+		const outcome = await Promise.race([
+			searchPromise.then((releases) => ({ state: 'resolved' as const, releases })),
+			new Promise<{ state: 'pending' }>((resolve) =>
+				setTimeout(() => resolve({ state: 'pending' }), 100)
+			)
+		]);
+
+		expect(outcome.state).toBe('resolved');
+		if (outcome.state === 'resolved') {
+			expect(outcome.releases.map((release) => release.guid)).toContain('grown-ups-noyear');
+		}
+
+		releaseSlowVariant();
+		await searchPromise;
+	});
+
+	it('keeps waiting for all TV episode-format variants before merging', async () => {
+		const orchestrator = new SearchOrchestrator();
+		let releaseSlowVariant!: () => void;
+		const slowGate = new Promise<void>((resolve) => {
+			releaseSlowVariant = resolve;
+		});
+
+		const fakeIndexer = buildIndexer({
+			search: async (criteria) => {
+				const tv = isTvSearch(criteria) ? criteria : undefined;
+				if (tv?.preferredEpisodeFormat === 'standard') {
+					await slowGate;
+					return [];
+				}
+				return [createRelease({ guid: 'show-european', title: 'My Show 1x05 720p' })];
+			}
+		});
+
+		const criteria = createTvCriteria({ query: 'My Show', season: 1, episode: 5 });
+		const searchPromise = privateApi(orchestrator).executeMultiTitleTextSearch(
+			fakeIndexer,
+			criteria
+		);
+
+		const outcome = await Promise.race([
+			searchPromise.then((releases) => ({ state: 'resolved' as const, releases })),
+			new Promise<{ state: 'pending' }>((resolve) =>
+				setTimeout(() => resolve({ state: 'pending' }), 100)
+			)
+		]);
+
+		expect(outcome.state).toBe('pending');
+
+		releaseSlowVariant();
+		await searchPromise;
 	});
 
 	it('adds title-only fallback variant for interactive TV episode searches', async () => {
@@ -805,6 +886,59 @@ describe('SearchOrchestrator.filterBySeasonEpisode', () => {
 describe('SearchOrchestrator.filterByIdOrTitleMatch', () => {
 	const orchestrator = new SearchOrchestrator();
 
+	// The 2026-09-17 wrong-target incident: substring containment matched
+	// "Halloween" (1978) to "Detective Conan: The Bride of Halloween" (2022).
+	it('removes Detective Conan: The Bride of Halloween from automatic Halloween searches', () => {
+		const releases = [
+			createRelease({
+				title: 'Detective.Conan.The.Bride.of.Halloween.2022.1080p.BDRip.x264',
+				indexerName: 'FakeIndexer'
+			}),
+			createRelease({ title: 'Halloween.1978.1080p.BluRay.x264', indexerName: 'FakeIndexer' })
+		];
+
+		const criteria = createMovieCriteria({
+			query: 'Halloween',
+			searchTitles: ['Halloween'],
+			tmdbId: 1104,
+			year: 1978
+		});
+
+		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+		expect(filtered).toHaveLength(1);
+		expect(filtered[0].title).toBe('Halloween.1978.1080p.BluRay.x264');
+	});
+
+	it('keeps season packs whose title year is the season air year, not the series first-air year', () => {
+		const releases = [createRelease({ title: 'Mr.Robot.S03.2017.1080p.WEB-DL.DDP5.1.H.264' })];
+
+		const criteria = createTvCriteria({
+			query: 'Mr. Robot',
+			searchTitles: ['Mr. Robot'],
+			tmdbId: 62560,
+			year: 2015,
+			season: 3
+		});
+
+		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+		expect(filtered).toHaveLength(1);
+	});
+
+	it('still rejects season packs dated before the series first aired', () => {
+		const releases = [createRelease({ title: 'Mr.Robot.S03.2012.1080p.WEB-DL.DDP5.1.H.264' })];
+
+		const criteria = createTvCriteria({
+			query: 'Mr. Robot',
+			searchTitles: ['Mr. Robot'],
+			tmdbId: 62560,
+			year: 2015,
+			season: 3
+		});
+
+		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+		expect(filtered).toHaveLength(0);
+	});
+
 	it('rejects wrong-year movie releases even without searchTitles', () => {
 		const releases = [
 			createRelease({ title: 'Now.You.See.Me.2013.1080p.BluRay.x264', indexerName: 'FakeIndexer' }),
@@ -827,7 +961,7 @@ describe('SearchOrchestrator.filterByIdOrTitleMatch', () => {
 		expect(titles).toEqual(['Now.You.See.Me.Now.You.Dont.2025.1080p.WEB-DL.DDP5.1.H.265']);
 	});
 
-	it('keeps movie releases with unknown year when IDs are absent', () => {
+	it('removes year-less movie releases from automatic searches when IDs are absent', () => {
 		const releases = [
 			createRelease({
 				title: 'Now.You.See.Me.Now.You.Dont.1080p.WEB-DL.REPACK',
@@ -843,8 +977,29 @@ describe('SearchOrchestrator.filterByIdOrTitleMatch', () => {
 		});
 
 		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+		// A year-less title cannot prove which same-titled movie it is; automatic
+		// search treats missing year evidence as uncertainty, not proof.
+		expect(filtered).toHaveLength(0);
+	});
+
+	it('keeps year-less movie releases visible for interactive searches', () => {
+		const releases = [
+			createRelease({
+				title: 'Now.You.See.Me.Now.You.Dont.1080p.WEB-DL.REPACK',
+				indexerName: 'FakeIndexer'
+			})
+		];
+
+		const criteria = createMovieCriteria({
+			searchSource: 'interactive',
+			query: "Now You See Me: Now You Don't",
+			imdbId: 'tt4712810',
+			tmdbId: 425274,
+			year: 2025
+		});
+
+		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
 		expect(filtered).toHaveLength(1);
-		expect(filtered[0].title).toBe('Now.You.See.Me.Now.You.Dont.1080p.WEB-DL.REPACK');
 	});
 
 	it('keeps interactive movie results when title is localized and year is missing on localized trackers', () => {
@@ -898,6 +1053,147 @@ describe('SearchOrchestrator.filterByIdOrTitleMatch', () => {
 
 		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
 		expect(filtered).toHaveLength(0);
+	});
+
+	it('keeps interactive movie results from native-Cyrillic trackers when the release year is within ±1', () => {
+		const releases = [
+			createRelease({
+				title: 'Военная машина [2016, США, боевик, BDRip 1080p]',
+				indexerName: 'RuTracker.org'
+			})
+		];
+
+		const criteria = createMovieCriteria({
+			searchSource: 'interactive',
+			query: 'War Machine',
+			searchTitles: ['War Machine'],
+			year: 2017
+		});
+
+		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+		expect(filtered).toHaveLength(1);
+		expect(filtered[0].title).toContain('Военная машина');
+	});
+
+	it('keeps automatic movie results from native-Cyrillic trackers when the year matches', () => {
+		const releases = [
+			createRelease({
+				title: 'Военная машина [2017, США, боевик, BDRip 1080p]',
+				indexerName: 'RuTracker.org'
+			})
+		];
+
+		const criteria = createMovieCriteria({
+			searchSource: 'automatic',
+			query: 'War Machine',
+			searchTitles: ['War Machine'],
+			year: 2017
+		});
+
+		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+		expect(filtered).toHaveLength(1);
+	});
+
+	it('keeps automatic movie results from native-Cyrillic trackers when the release year is within ±1', () => {
+		const releases = [
+			createRelease({
+				title: 'Военная машина [2016, США, боевик, BDRip 1080p]',
+				indexerName: 'RuTracker.org'
+			})
+		];
+
+		const criteria = createMovieCriteria({
+			searchSource: 'automatic',
+			query: 'War Machine',
+			searchTitles: ['War Machine'],
+			year: 2017
+		});
+
+		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+		expect(filtered).toHaveLength(1);
+	});
+
+	it('rejects native-Cyrillic movie results when the release year is off by more than 1', () => {
+		const releases = [
+			createRelease({
+				title: 'Военная машина [2014, США, боевик, BDRip 1080p]',
+				indexerName: 'RuTracker.org'
+			})
+		];
+
+		const criteria = createMovieCriteria({
+			searchSource: 'automatic',
+			query: 'War Machine',
+			searchTitles: ['War Machine'],
+			year: 2017
+		});
+
+		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+		expect(filtered).toHaveLength(0);
+	});
+
+	it('keeps automatic TV results from native-Cyrillic trackers for whole-series lookups within ±1 year', () => {
+		const releases = [
+			createRelease({
+				title: 'Ночной агент [2025, США, боевик, WEB-DL 1080p]',
+				indexerName: 'RuTracker.org'
+			})
+		];
+
+		const criteria = createTvCriteria({
+			searchSource: 'automatic',
+			query: 'The Night Agent',
+			searchTitles: ['The Night Agent'],
+			year: 2026
+		});
+
+		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+		expect(filtered).toHaveLength(1);
+	});
+});
+
+describe('SearchOrchestrator.executeSeasonPackSupplementalSearch', () => {
+	const orchestrator = new SearchOrchestrator();
+
+	it('does not duplicate the season token when the query already contains it', async () => {
+		const capturedQueries: string[] = [];
+		const indexer = buildIndexer({
+			search: async (criteria: { query?: string }) => {
+				capturedQueries.push(criteria.query ?? '');
+				return [];
+			}
+		});
+
+		const criteria = createTvCriteria({
+			query: 'Mr. Robot S03',
+			season: 3
+		});
+
+		await privateApi(orchestrator).executeSeasonPackSupplementalSearch(indexer, criteria, []);
+
+		expect(capturedQueries.length).toBeGreaterThan(0);
+		for (const q of capturedQueries) {
+			expect(q.match(/S03/gi)?.length ?? 0).toBe(1);
+		}
+	});
+
+	it('appends the season token when the query lacks one', async () => {
+		const capturedQueries: string[] = [];
+		const indexer = buildIndexer({
+			search: async (criteria: { query?: string }) => {
+				capturedQueries.push(criteria.query ?? '');
+				return [];
+			}
+		});
+
+		const criteria = createTvCriteria({ query: 'Mr. Robot', season: 3 });
+
+		await privateApi(orchestrator).executeSeasonPackSupplementalSearch(indexer, criteria, []);
+
+		expect(capturedQueries.length).toBeGreaterThan(0);
+		for (const q of capturedQueries) {
+			expect(q).toContain('Mr. Robot S03');
+		}
 	});
 });
 
@@ -963,14 +1259,17 @@ describe('SearchOrchestrator.filterByTitleRelevance', () => {
 		const releases = [
 			createRelease({
 				title:
-					'War Machine (Patrick Hughes) [2026, UK, Australia, New Zealand, USA, sci-fi, action, WEB-DLRip] Dub + Sub (Rus, Eng)'
+					'War Machine (Patrick Hughes) [2026, UK, Australia, New Zealand, USA, sci-fi, action, WEB-DLRip] Dub + Sub (Rus, Eng)',
+				indexerName: 'FakeIndexer'
 			}),
 			createRelease({
-				title: 'Completely Different Movie [2026, USA, WEB-DLRip]'
+				title: 'Completely Different Movie [2026, USA, WEB-DLRip]',
+				indexerName: 'FakeIndexer'
 			})
 		];
 
 		const criteria = createMovieCriteria({
+			searchSource: 'interactive',
 			query: 'War Machine',
 			searchTitles: ['War Machine', 'Máquina de Guerra']
 		});
@@ -983,16 +1282,19 @@ describe('SearchOrchestrator.filterByTitleRelevance', () => {
 	it('matches localized unicode movie titles when expected title is localized', () => {
 		const releases = [
 			createRelease({
-				title: 'Особенности национальной охоты [1995, комедия, DVDRip]'
+				title: 'Особенности национальной охоты [1995, комедия, DVDRip]',
+				indexerName: 'RuTracker.org'
 			}),
 			createRelease({
-				title: 'Другой фильм [1995, драма, DVDRip]'
+				title: 'Другой фильм [1997, драма, DVDRip]',
+				indexerName: 'RuTracker.org'
 			})
 		];
 
 		const criteria = createMovieCriteria({
 			query: 'Особенности национальной охоты',
-			searchTitles: ['Особенности национальной охоты']
+			searchTitles: ['Особенности национальной охоты'],
+			year: 1995
 		});
 
 		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
@@ -1018,16 +1320,19 @@ describe('SearchOrchestrator.filterByTitleRelevance', () => {
 	it('keeps TV releases with long tracker metadata when series title matches', () => {
 		const releases = [
 			createRelease({
-				title: 'The Night Agent / Ночной агент S03E10 [2026, WEB-DL 1080p, Dub, Sub Rus, Eng]'
+				title: 'The Night Agent / Ночной агент S03E10 [2026, WEB-DL 1080p, Dub, Sub Rus, Eng]',
+				indexerName: 'RuTracker.org'
 			}),
 			createRelease({
-				title: 'Different Show S03E10 [2026, WEB-DL 1080p]'
+				title: 'Different Show S03E10 [2026, WEB-DL 1080p]',
+				indexerName: 'RuTracker.org'
 			})
 		];
 
 		const criteria = createTvCriteria({
 			query: 'The Night Agent',
-			searchTitles: ['The Night Agent']
+			searchTitles: ['The Night Agent'],
+			season: 3
 		});
 
 		const filtered = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
@@ -1471,5 +1776,175 @@ describe('SearchOrchestrator.filterIndexers protocol filter', () => {
 		expect(result.eligible).toHaveLength(1);
 		expect(result.eligible[0].protocol).toBe('streaming');
 		expect(result.rejected).toHaveLength(0);
+	});
+});
+
+describe('SearchOrchestrator.filterBySeasonEpisode movie titles with season markers', () => {
+	const orchestrator = new SearchOrchestrator();
+
+	it('keeps releases whose season marker comes from the searched movie title', () => {
+		const criteria = createMovieCriteria({
+			query: 'Open Season 3',
+			year: 2010,
+			tmdbId: 51170
+		});
+		const releases = [
+			createRelease({ title: 'Open Season 3 (2010) 1080p bluray x264' }),
+			createRelease({ title: 'Open.Season.3.2010.1080p.AMZN.WEB-DL.H264-GPRS' })
+		];
+
+		const filtered = privateApi(orchestrator).filterBySeasonEpisode(releases, criteria);
+
+		expect(filtered).toHaveLength(2);
+	});
+
+	it('still rejects SxxExx releases for movie searches', () => {
+		const criteria = createMovieCriteria({ query: 'Open Season 3', year: 2010 });
+		const releases = [createRelease({ title: 'Open Season 3 S01E03.1080p.WEBRip' })];
+
+		const filtered = privateApi(orchestrator).filterBySeasonEpisode(releases, criteria);
+
+		expect(filtered).toHaveLength(0);
+	});
+
+	it('leaves season-marker releases to the ID/title filter when the movie title has no marker', () => {
+		const criteria = createMovieCriteria({ query: 'Jaws', year: 1975 });
+		const releases = [createRelease({ title: 'Jaws Season 1 Complete 1080p BluRay' })];
+
+		// Movie-mode parsing keeps "Season 1" unflagged (ambiguous with the title),
+		// so the season filter passes it through...
+		const filtered = privateApi(orchestrator).filterBySeasonEpisode(releases, criteria);
+		expect(filtered).toHaveLength(1);
+
+		// ...and the metadata-aware ID/title filter rejects it instead.
+		const survivors = privateApi(orchestrator).filterByIdOrTitleMatch(filtered, criteria);
+		expect(survivors).toHaveLength(0);
+	});
+});
+
+describe('ordering flaw verification: ID/title match vs season filter', () => {
+	const orchestrator = new SearchOrchestrator();
+
+	it('the metadata-aware filter ACCEPTS the releases the season-pack filter killed', () => {
+		const criteria = createMovieCriteria({
+			query: 'Open Season 3',
+			year: 2010,
+			tmdbId: 51170,
+			imdbId: 'tt1646926'
+		});
+		const releases = [
+			createRelease({ title: 'Open Season 3 (2010) 1080p bluray x264' }),
+			createRelease({ title: 'Open.Season.3.2010.1080p.AMZN.WEB-DL.H264-GPRS' })
+		];
+
+		const survivors = privateApi(orchestrator).filterByIdOrTitleMatch(releases, criteria);
+
+		console.log('ORDERING-TEST: survivors =', survivors.length, 'of', releases.length);
+		expect(survivors).toHaveLength(2);
+	});
+});
+
+describe('filterBySeasonEpisode ID-first classification (movie search)', () => {
+	const orchestrator = new SearchOrchestrator();
+
+	it('accepts a release whose TMDB ID matches even if the title parses as TV', () => {
+		const criteria = createMovieCriteria({ query: 'Open Season 3', year: 2010, tmdbId: 51170 });
+		const releases = [
+			createRelease({
+				title: 'Open Season 3 (2010) [Streaming]',
+				tmdbId: 51170,
+				protocol: 'streaming'
+			}),
+			createRelease({ title: 'Open Season 3 S01E03 1080p WEBRip', tmdbId: 51170 })
+		];
+
+		const filtered = privateApi(orchestrator).filterBySeasonEpisode(releases, criteria);
+
+		expect(filtered).toHaveLength(2);
+	});
+
+	it('rejects a definitive ID mismatch from native-Cyrillic trackers', () => {
+		const criteria = createMovieCriteria({ query: 'Open Season 3', year: 2010, tmdbId: 51170 });
+		const releases = [
+			createRelease({
+				title: 'Открытый Сезон 3 S01E03 1080p',
+				tmdbId: 999999,
+				indexerName: 'RuTracker.org'
+			})
+		];
+
+		const filtered = privateApi(orchestrator).filterBySeasonEpisode(releases, criteria);
+
+		expect(filtered).toHaveLength(0);
+	});
+
+	it('falls back to title parsing when an aggregator ID mismatches', () => {
+		const criteria = createMovieCriteria({ query: 'Open Season 3', year: 2010, tmdbId: 51170 });
+		const releases = [
+			createRelease({
+				title: 'Open Season 3 (2010) 1080p bluray x264',
+				tmdbId: 999999,
+				indexerName: 'LimeTorrents'
+			})
+		];
+
+		const filtered = privateApi(orchestrator).filterBySeasonEpisode(releases, criteria);
+
+		// aggregator mismatch is not definitive: parse says "the movie" → kept
+		expect(filtered).toHaveLength(1);
+	});
+});
+
+describe('filterByCategoryMatch ID-first (audit follow-up)', () => {
+	const orchestrator = new SearchOrchestrator();
+
+	it('keeps a release with matching TMDB ID despite a noisy category', () => {
+		const criteria = createMovieCriteria({ query: 'Open Season 3', tmdbId: 51170 });
+		const releases = [
+			createRelease({
+				title: 'Open.Season.3.2010.1080p.BluRay.x265',
+				tmdbId: 51170,
+				categories: [3000]
+			})
+		];
+
+		const filtered = privateApi(orchestrator).filterByCategoryMatch(releases, 'movie', criteria);
+
+		expect(filtered).toHaveLength(1);
+	});
+
+	it('keeps a TV release with matching TMDB ID filed under a movie category', () => {
+		const criteria = createTvCriteria({ query: 'One Piece', tmdbId: 37854 });
+		const releases = [
+			createRelease({ title: 'One.Piece.S01E01.1080p.WEB-DL', tmdbId: 37854, categories: [2000] })
+		];
+
+		const filtered = privateApi(orchestrator).filterByCategoryMatch(releases, 'tv', criteria);
+
+		expect(filtered).toHaveLength(1);
+	});
+});
+
+describe('filterOutNonVideoArtifacts — title-embedded artifact tokens (audit)', () => {
+	const orchestrator = new SearchOrchestrator();
+
+	it('keeps "Trailer Park Boys" — the token is part of the title, before quality', () => {
+		const criteria = createTvCriteria({ query: 'Trailer Park Boys', season: 1, episode: 1 });
+		const releases = [
+			createRelease({ title: 'Trailer.Park.Boys.S01E01.1080p.WEB-DL.DD5.1.H.264' })
+		];
+
+		const filtered = privateApi(orchestrator).filterOutNonVideoArtifacts(releases, criteria);
+
+		expect(filtered).toHaveLength(1);
+	});
+
+	it('rejects an appended trailer after the quality block', () => {
+		const criteria = createMovieCriteria({ query: 'Some Movie', year: 2020 });
+		const releases = [createRelease({ title: 'Some.Movie.2020.1080p.BluRay.Trailer' })];
+
+		const filtered = privateApi(orchestrator).filterOutNonVideoArtifacts(releases, criteria);
+
+		expect(filtered).toHaveLength(0);
 	});
 });

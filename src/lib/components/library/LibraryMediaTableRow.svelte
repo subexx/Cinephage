@@ -46,6 +46,8 @@
 		onManualGrab?: (id: string) => void;
 		onDelete: (id: string) => void;
 		onNavigate: () => void;
+		/** Instance default for items with no explicit prefer-original flag. */
+		preferOriginalTitleDefault?: boolean | null;
 	}
 
 	let {
@@ -64,7 +66,8 @@
 		onAutoGrab,
 		onManualGrab,
 		onDelete,
-		onNavigate
+		onNavigate,
+		preferOriginalTitleDefault = false
 	}: Props = $props();
 
 	const itemIsMovie = $derived(isMovie(item));
@@ -73,6 +76,9 @@
 	const missing = $derived(isItemMissing(item));
 	const isNearBottom = $derived(idx >= 10);
 	const relDate = $derived(formatRelativeDate(item.added));
+	const partiallyMonitored = $derived(
+		isSeries(item) && (item as LibrarySeries).partiallyMonitored === true
+	);
 </script>
 
 <tr
@@ -91,7 +97,7 @@
 		<td>
 			<input
 				type="checkbox"
-				class="checkbox checkbox-sm"
+				class="checkbox checkbox-sm checkbox-primary"
 				checked={selected}
 				onchange={(e) => onSelectChange(item.id, e.currentTarget.checked)}
 			/>
@@ -124,7 +130,7 @@
 			href={resolvePath(`/library/${mediaType}/${item.id}`)}
 			class="block max-w-xs truncate text-base font-medium hover:text-primary"
 		>
-			{displayTitle(item)}
+			{displayTitle(item, preferOriginalTitleDefault)}
 		</a>
 		{#if itemIsMovie && 'collectionName' in item && item.collectionName}
 			<span class="mt-0.5 badge badge-outline badge-xs">{item.collectionName}</span>
@@ -138,11 +144,16 @@
 	<td>
 		<div class="flex items-center gap-1.5">
 			{#if item.monitored}
-				<span class="badge gap-1.5 badge-sm badge-success">
+				<span
+					class="badge gap-1.5 badge-sm {partiallyMonitored ? 'badge-warning' : 'badge-success'}"
+					title={partiallyMonitored
+						? m.library_monitorToggle_partiallyMonitored()
+						: m.common_monitored()}
+				>
 					<Eye class="h-3.5 w-3.5" />
 				</span>
 			{:else}
-				<span class="badge gap-1.5 badge-ghost badge-sm">
+				<span class="badge gap-1.5 badge-ghost badge-sm" title={m.common_unmonitored()}>
 					<EyeOff class="h-3.5 w-3.5" />
 				</span>
 			{/if}
@@ -238,7 +249,7 @@
 			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 			<ul
 				tabindex="0"
-				class="dropdown-content menu z-50 w-40 rounded-box border border-base-content/10 bg-base-200 p-2 shadow-lg"
+				class="menu dropdown-content z-50 w-40 rounded-box border border-base-content/10 bg-base-200 p-2 shadow-lg"
 			>
 				<li>
 					<button onclick={() => onMonitorToggle(item.id)}>

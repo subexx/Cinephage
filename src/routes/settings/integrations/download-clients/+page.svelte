@@ -84,6 +84,16 @@
 		)
 	);
 
+	// If the last usable debrid client is removed/disabled, fall back to torrent
+	// rather than leaving an unreachable "debrid" preference in place with no
+	// control left in the UI to change it back.
+	$effect(() => {
+		if (!debridAvailable && defaultAcquisitionProtocol === 'debrid') {
+			defaultAcquisitionProtocol = 'torrent';
+			void saveDefaultAcquisitionProtocol();
+		}
+	});
+
 	async function saveDefaultAcquisitionProtocol() {
 		const response = await fetch('/api/settings/acquisition', {
 			method: 'PUT',
@@ -106,13 +116,11 @@
 	}
 
 	const downloadClientRows = $derived(
-		data.downloadClients.map(
-			(c): UnifiedClientItem => ({
-				...c,
-				type: 'download-client',
-				implementation: c.implementation
-			})
-		)
+		data.downloadClients.map((c): UnifiedClientItem => ({
+			...c,
+			type: 'download-client',
+			implementation: c.implementation
+		}))
 	);
 
 	function getClientProtocol(
@@ -569,7 +577,7 @@
 >
 	{#snippet actions()}
 		<button
-			class="btn w-full gap-2 btn-sm btn-primary sm:w-auto"
+			class="btn w-full gap-2 btn-primary btn-sm sm:w-auto"
 			onclick={openAddDownloadClientModal}
 		>
 			<Plus class="h-4 w-4" />
@@ -585,7 +593,7 @@
 			<input
 				type="text"
 				placeholder={m.settings_integrations_downloadClients_searchPlaceholder()}
-				class="input input-sm w-full rounded-full border-base-content/20 bg-base-200/60 pr-4 pl-10 transition-all duration-200 placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
+				class="input w-full rounded-full border-base-content/20 bg-base-200/60 pr-4 pl-10 transition-all duration-200 input-sm placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
 				value={filters.search}
 				oninput={(e) => updateFilter('search', e.currentTarget.value)}
 			/>
@@ -647,23 +655,22 @@
 		</div>
 	</div>
 
-	<div class="mb-4 rounded-lg border border-base-300 bg-base-100 p-4">
-		<label class="label py-1" for="defaultAcquisitionProtocol">
-			<span class="label-text font-medium">{m.acquisition_defaultPreference()}</span>
-		</label>
-		<select
-			id="defaultAcquisitionProtocol"
-			class="select-bordered select select-sm"
-			bind:value={defaultAcquisitionProtocol}
-			onchange={saveDefaultAcquisitionProtocol}
-		>
-			<option value="torrent">{m.acquisition_torrent()}</option>
-			<option value="debrid" disabled={!debridAvailable}>{m.acquisition_debrid()}</option>
-		</select>
-		{#if !debridAvailable}<p class="mt-2 text-xs text-base-content/60">
-				{m.acquisition_debridUnavailableReason()}
-			</p>{/if}
-	</div>
+	{#if debridAvailable}
+		<div class="mb-4 rounded-lg border border-base-300 bg-base-100 p-4">
+			<label class="label py-1" for="defaultAcquisitionProtocol">
+				<span class="label-text font-medium">{m.acquisition_defaultPreference()}</span>
+			</label>
+			<select
+				id="defaultAcquisitionProtocol"
+				class="select-bordered select select-sm"
+				bind:value={defaultAcquisitionProtocol}
+				onchange={saveDefaultAcquisitionProtocol}
+			>
+				<option value="torrent">{m.acquisition_torrentClient()}</option>
+				<option value="debrid">{m.acquisition_debrid()}</option>
+			</select>
+		</div>
+	{/if}
 
 	{#if selectedIds.size > 0}
 		<DownloadClientBulkActions
@@ -717,7 +724,8 @@
 			throw new Error(
 				(err && typeof err === 'object' && 'error' in (err as Record<string, unknown>)
 					? (err as Record<string, unknown>).error
-					: m.common_failedToSave()) as string
+					: m.common_failedToSave()) as string,
+				{ cause: e }
 			);
 		}
 	}}
@@ -726,6 +734,10 @@
 	onDelete={handleDelete}
 	onTest={handleTest}
 	allowNntp={false}
+	existingClients={data.downloadClients.map((c) => ({
+		id: c.id,
+		implementation: c.implementation
+	}))}
 />
 
 <ConfirmationModal

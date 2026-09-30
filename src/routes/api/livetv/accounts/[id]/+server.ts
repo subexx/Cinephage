@@ -12,9 +12,12 @@ import { getLiveTvAccountManager } from '$lib/server/livetv/LiveTvAccountManager
 import { getEpgService, getEpgScheduler } from '$lib/server/livetv/epg';
 import { getEpgSyncState } from '$lib/server/livetv/epg/EpgSyncState';
 import { liveTvEvents } from '$lib/server/livetv/LiveTvEvents';
-import { logger } from '$lib/logging';
+import { createChildLogger } from '$lib/logging';
 import { z } from 'zod';
 import { ValidationError } from '$lib/errors';
+import { stalkerLanguageSchema } from '$lib/validation/schemas.js';
+
+const logger = createChildLogger({ module: 'LiveTvAccountById', logDomain: 'livetv' });
 
 // Validation schema for updating Live TV accounts
 const liveTvAccountUpdateSchema = z.object({
@@ -30,6 +33,7 @@ const liveTvAccountUpdateSchema = z.object({
 			deviceId2: z.string().optional(),
 			model: z.string().optional(),
 			timezone: z.string().optional(),
+			language: stalkerLanguageSchema.optional(),
 			username: z.string().optional(),
 			password: z.string().optional()
 		})

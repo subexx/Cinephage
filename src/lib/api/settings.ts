@@ -41,8 +41,8 @@ export async function deleteRootFolder(id: string) {
 	return apiDelete(`/api/root-folders/${id}`);
 }
 
-export async function validateRootFolder(path: string, mediaType?: string, folderId?: string) {
-	return apiPost('/api/root-folders/validate', { path, mediaType, folderId });
+export async function validateRootFolder(path: string, readOnly?: boolean, folderId?: string) {
+	return apiPost('/api/root-folders/validate', { path, readOnly, folderId });
 }
 
 export async function getLibraries(params?: { mediaType?: string; includeSystem?: boolean }) {
@@ -259,8 +259,8 @@ export async function getLogSettings() {
 	return apiGet('/api/settings/logs/settings');
 }
 
-export async function updateLogSettings(retentionDays: number) {
-	return apiPut('/api/settings/logs/settings', { retentionDays });
+export async function updateLogSettings(update: { retentionDays?: number; minLevel?: string }) {
+	return apiPut('/api/settings/logs/settings', update);
 }
 
 export async function downloadLogs(params?: Record<string, string>) {
@@ -297,6 +297,31 @@ export async function getExternalUrl() {
 
 export async function updateExternalUrl(url: string) {
 	return apiPut('/api/settings/external-url', { url });
+}
+
+export async function getArrCompatEnabled() {
+	return apiGet('/api/settings/arr-compat');
+}
+
+export async function updateArrCompatEnabled(enabled: boolean) {
+	return apiPut('/api/settings/arr-compat', { enabled });
+}
+
+export interface SidecarSettingsPayload {
+	enabled: boolean;
+	overwriteExisting: boolean;
+	includeArtwork: boolean;
+	tvSeriesLevel: boolean;
+	tvSeasonLevel: boolean;
+	tvEpisodeLevel: boolean;
+}
+
+export async function getSidecarSettings() {
+	return apiGet('/api/settings/sidecar');
+}
+
+export async function updateSidecarSettings(update: Partial<SidecarSettingsPayload>) {
+	return apiPut('/api/settings/sidecar', update);
 }
 
 export async function getSystemStatus() {

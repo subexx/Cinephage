@@ -200,7 +200,7 @@
 					bind:value={query}
 					oninput={handleInput}
 					placeholder="Search TMDB keywords..."
-					class="input input-sm w-full rounded-full border-base-content/20 bg-base-100 pr-9 pl-10 transition-all duration-200 placeholder:text-base-content/40 hover:bg-base-200/60 focus:border-primary/50 focus:bg-base-200/60 focus:ring-1 focus:ring-primary/20 focus:outline-none"
+					class="input w-full rounded-full border-base-content/20 bg-base-100 pr-9 pl-10 transition-all duration-200 input-sm placeholder:text-base-content/40 hover:bg-base-200/60 focus:border-primary/50 focus:bg-base-200/60 focus:ring-1 focus:ring-primary/20 focus:outline-none"
 				/>
 			</div>
 			{#if searchResults.length > 0}
@@ -214,7 +214,7 @@
 							{#if alreadyBlocked}
 								<button
 									type="button"
-									class="btn gap-1 btn-outline btn-xs btn-error"
+									class="btn gap-1 btn-outline btn-error btn-xs"
 									onclick={() => removeKeywordByKeywordId(keyword.id)}
 								>
 									<X class="h-3 w-3" /> Remove
@@ -222,7 +222,7 @@
 							{:else}
 								<button
 									type="button"
-									class="btn gap-1 btn-xs btn-primary"
+									class="btn gap-1 btn-primary btn-xs"
 									onclick={() => addKeyword(keyword)}
 								>
 									<Plus class="h-3 w-3" /> Add
@@ -247,14 +247,14 @@
 						{#if selectedIds.size > 0}
 							<span class="text-sm text-base-content/60">{selectedIds.size} selected</span>
 							<button
-								class="btn gap-1.5 btn-sm btn-error"
+								class="btn gap-1.5 btn-error btn-sm"
 								onclick={() => (confirmBulkRemoveOpen = true)}
 							>
 								<Trash2 class="h-3.5 w-3.5" /> Remove selected
 							</button>
 						{/if}
 						<button
-							class="btn gap-1.5 btn-ghost btn-sm btn-error"
+							class="btn gap-1.5 btn-ghost btn-error btn-sm"
 							onclick={() => (confirmRemoveAllOpen = true)}
 						>
 							<Trash2 class="h-3.5 w-3.5" /> Remove all
@@ -279,7 +279,7 @@
 								<th class="w-10">
 									<input
 										type="checkbox"
-										class="checkbox checkbox-xs"
+										class="checkbox checkbox-xs checkbox-primary"
 										checked={blockedKeywords.length > 0 &&
 											blockedKeywords.every((k) => selectedIds.has(k.id))}
 										onchange={(e) => handleSelectAll((e.target as HTMLInputElement).checked)}
@@ -297,7 +297,7 @@
 									<td>
 										<input
 											type="checkbox"
-											class="checkbox checkbox-xs"
+											class="checkbox checkbox-xs checkbox-primary"
 											checked={selectedIds.has(kw.id)}
 											onchange={(e) => {
 												if ((e.target as HTMLInputElement).checked) selectedIds.add(kw.id);
@@ -310,7 +310,7 @@
 									<td class="text-base-content/50">{formatDisplayDate(kw.createdAt)}</td>
 									<td>
 										<button
-											class="btn text-error btn-ghost btn-xs"
+											class="btn btn-ghost text-error btn-xs"
 											onclick={() => removeKeyword(kw.id)}
 										>
 											<X class="h-3 w-3" /> Remove

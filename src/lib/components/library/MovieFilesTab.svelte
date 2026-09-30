@@ -4,6 +4,7 @@
 	import FileCard from './FileCard.svelte';
 	import { FileX, Search } from 'lucide-svelte';
 	import { formatBytes } from '$lib/utils/format.js';
+	import type { SubtitleRequirementProgress } from '$lib/utils/subtitle-status-display.js';
 
 	interface Subtitle {
 		id: string;
@@ -18,6 +19,8 @@
 	interface Props {
 		files: MovieFile[];
 		subtitles?: Subtitle[];
+		/** Requirement-aware subtitle progress from the movie loader. */
+		subtitleProgress?: SubtitleRequirementProgress | null;
 		isStreamerProfile?: boolean;
 		onDeleteFile?: (fileId: string) => void;
 		onSearch?: () => void;
@@ -29,6 +32,7 @@
 	let {
 		files,
 		subtitles = [],
+		subtitleProgress = null,
 		isStreamerProfile = false,
 		onDeleteFile,
 		onSearch,
@@ -51,7 +55,7 @@
 			<h3 class="mt-4 text-lg font-medium">{m.library_movieFilesTab_noFilesFound()}</h3>
 			<p class="mt-1 text-sm text-base-content/60">{m.library_movieFilesTab_notDownloaded()}</p>
 			{#if onSearch}
-				<button class="btn mt-4 gap-2 btn-sm btn-primary" onclick={onSearch}>
+				<button class="btn mt-4 gap-2 btn-primary btn-sm" onclick={onSearch}>
 					<Search size={16} />
 					{m.library_movieFilesTab_searchDownloads()}
 				</button>
@@ -64,6 +68,7 @@
 				<FileCard
 					{file}
 					{subtitles}
+					{subtitleProgress}
 					{isStreamerProfile}
 					onDelete={onDeleteFile}
 					{onSubtitleSearch}

@@ -11,6 +11,9 @@
 	import { MediaSearchModal } from '$lib/components/search';
 	import { SubtitleSearchModal } from '$lib/components/subtitles';
 	import SubtitleSyncModal from '$lib/components/subtitles/SubtitleSyncModal.svelte';
+	import SubtitleRequirementsSection from '$lib/components/subtitles/SubtitleRequirementsSection.svelte';
+	import { deriveSeriesSubtitleProgress } from '$lib/utils/subtitle-status-display.js';
+	import type { SubtitleRequirement } from '$lib/shared/language-profile.js';
 	import DeleteConfirmationModal from '$lib/components/ui/modal/DeleteConfirmationModal.svelte';
 	import { ModalWrapper, ModalHeader, ModalFooter } from '$lib/components/ui/modal';
 	import { toasts } from '$lib/stores/toast.svelte';
@@ -31,8 +34,9 @@
 	import { CheckSquare, FileEdit, RefreshCw, X } from 'lucide-svelte';
 	import { SvelteSet, SvelteMap } from 'svelte/reactivity';
 	import { page } from '$app/state';
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { resolvePath } from '$lib/utils/routing';
+	import { getLibraryDetailBackHref } from '$lib/utils/libraryReturnNavigation';
 	import { createDynamicSSE } from '$lib/sse';
 	import { createSearchProgress } from '$lib/stores/searchProgress.svelte';
 	import { createSubtitleProgress } from '$lib/stores/subtitleProgress.svelte';
@@ -55,6 +59,12 @@
 	const seasons = $derived(seasonsState ?? data.seasons);
 	const queueItems = $derived(queueItemsState ?? data.queueItems);
 
+	// Back link target: the validated returnTo URL carries the exact filtered
+	// list state from the page the user navigated from (issue #515). It stays
+	// absolute — LibrarySeriesHeader applies resolvePath() exactly once, and
+	// pre-resolving here relativizes it during SSR and throws (PR #518).
+	const tvBackHref = $derived(getLibraryDetailBackHref(page.url, '/library/tv'));
+
 	function computeSeriesEpisodeStats(seasonList: PageData['seasons']) {
 		const regularSeasons = seasonList.filter((season) => season.seasonNumber > 0);
 		const allEpisodes = regularSeasons.flatMap((season) => season.episodes);
@@ -66,6 +76,19 @@
 			percentComplete: stats.percentComplete
 		};
 	}
+
+	// A series is partially monitored when it is monitored but only some aired episodes are.
+	const partiallyMonitored = $derived.by(() => {
+		if (!series.monitored) return false;
+		const today = todayDateString();
+		const allEps = seasons
+			.filter((s) => s.seasonNumber > 0)
+			.flatMap((s) => s.episodes)
+			.filter((ep) => ep.airDate && ep.airDate <= today);
+		if (allEps.length === 0) return false;
+		const monitoredCount = allEps.filter((ep) => ep.monitored !== false).length;
+		return monitoredCount > 0 && monitoredCount < allEps.length;
+	});
 
 	// Keep series completion counters aligned with the actual episode rows shown in seasons.
 	const seriesForDisplay = $derived.by(() => {
@@ -681,6 +704,7 @@
 			series.seasonFolder = editData.seasonFolder;
 			series.seriesType = editData.seriesType;
 			series.wantsSubtitles = editData.wantsSubtitles;
+			series.languageProfileId = editData.languageProfileId;
 
 			if (episodeGroupChanged) {
 				series.episodeGroupId = editData.episodeGroupId ?? null;
@@ -806,6 +830,7 @@
 	// Episode deletion handlers
 	interface Episode {
 		id: string;
+		wantsSubtitlesOverride?: boolean | null;
 		seasonNumber: number;
 		episodeNumber: number;
 		title: string | null;
@@ -943,8 +968,7 @@
 			if (searchProgress.results) {
 				const issue = getPrimaryAutoSearchIssue(searchProgress.results);
 				const itemResult = searchProgress.results.results?.[0] as
-					| { found?: boolean; grabbed?: boolean; releaseName?: string; error?: string }
-					| undefined;
+					{ found?: boolean; grabbed?: boolean; releaseName?: string; error?: string } | undefined;
 				autoSearchEpisodeResults.set(episode.id, {
 					found: itemResult?.found ?? false,
 					grabbed: itemResult?.grabbed ?? false,
@@ -986,8 +1010,7 @@
 			if (searchProgress.results) {
 				const issue = getPrimaryAutoSearchIssue(searchProgress.results);
 				const itemResult = searchProgress.results.results?.[0] as
-					| { found?: boolean; grabbed?: boolean; releaseName?: string; error?: string }
-					| undefined;
+					{ found?: boolean; grabbed?: boolean; releaseName?: string; error?: string } | undefined;
 				autoSearchSeasonResults.set(season.id, {
 					found: itemResult?.found ?? false,
 					grabbed: itemResult?.grabbed ?? false,
@@ -1028,8 +1051,7 @@
 			if (searchProgress.results) {
 				const issue = getPrimaryAutoSearchIssue(searchProgress.results);
 				const results = searchProgress.results.results as
-					| Array<{ found?: boolean; grabbed?: boolean }>
-					| undefined;
+					Array<{ found?: boolean; grabbed?: boolean }> | undefined;
 				missingSearchResult = searchProgress.results.summary ?? {
 					searched: results?.length ?? 0,
 					found: results?.filter((r) => r.found).length ?? 0,
@@ -1492,6 +1514,65 @@
 	}
 
 	// Per-series subtitle auto-search (all missing)
+	const seriesSubtitleProgress = $derived(
+		deriveSeriesSubtitleProgress(data.seasons.flatMap((season) => season.episodes))
+	);
+
+	let savingRequirements = $state(false);
+	let searchingRequirements = $state(false);
+
+	async function handleEpisodeGateChange(episodeId: string, value: boolean | null) {
+		try {
+			const response = await fetch(`/api/library/episodes/${episodeId}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ wantsSubtitlesOverride: value })
+			});
+			if (!response.ok) throw new Error('Failed to update episode subtitle gate');
+			await invalidateAll();
+		} catch (error) {
+			showActionError(m.toast_library_tvDetail_failedToUpdateMonitor(), error);
+		}
+	}
+
+	async function handleRequirementSearch(requirement: SubtitleRequirement) {
+		searchingRequirements = true;
+		try {
+			const response = await fetch('/api/subtitles/auto-search/batch', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ type: 'series', seriesId: seriesForDisplay.id, requirement })
+			});
+			if (!response.ok) {
+				const body = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(body.error ?? 'Search failed');
+			}
+			await invalidateAll();
+		} catch (error) {
+			showActionError(m.toast_library_tvDetail_failedToUpdateMonitor(), error);
+		} finally {
+			searchingRequirements = false;
+		}
+	}
+
+	async function handleRequirementsSave(requirements: SubtitleRequirement[] | null) {
+		savingRequirements = true;
+		try {
+			const response = await fetch(`/api/library/series/${seriesForDisplay.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ subtitleRequirementsOverride: requirements })
+			});
+			if (!response.ok) {
+				const body = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(body.error ?? 'Failed to save subtitle languages');
+			}
+			await invalidateAll();
+		} finally {
+			savingRequirements = false;
+		}
+	}
+
 	async function handleSubtitleAutoSearchSeries(): Promise<void> {
 		subtitleAutoSearchingSeries = true;
 
@@ -1681,6 +1762,7 @@
 		configuredProviders={data.configuredMetadataProviders}
 		librarySlug={data.librarySlug}
 		libraryName={data.libraryName}
+		backHref={tvBackHref}
 		refreshing={isRefreshing}
 		{refreshProgress}
 		episodeCount={seriesForDisplay.episodeCount}
@@ -1692,6 +1774,9 @@
 		{searchingMissing}
 		{missingSearchProgress}
 		{missingSearchResult}
+		{partiallyMonitored}
+		subtitleProgress={seriesSubtitleProgress}
+		preferOriginalTitleDefault={data.preferOriginalTitleDefault}
 		onMonitorToggle={handleMonitorToggle}
 		onSearch={handleSearch}
 		onSearchMissing={handleSearchMissing}
@@ -1701,6 +1786,18 @@
 		onEdit={handleEdit}
 		onDelete={handleDelete}
 		onRefresh={handleRefresh}
+	/>
+
+	<!-- Subtitle requirements (series-level fallback for all episodes) -->
+	<SubtitleRequirementsSection
+		requirements={data.effectiveSubtitleRequirements?.requirements ?? []}
+		source={data.effectiveSubtitleRequirements?.source ?? null}
+		profileName={data.effectiveLanguageProfile?.profile.name ?? null}
+		audioShortfall={data.series.languageShortfall ?? false}
+		editable
+		saving={savingRequirements || searchingRequirements}
+		onSave={handleRequirementsSave}
+		onSearch={handleRequirementSearch}
 	/>
 
 	<!-- Main Content -->
@@ -1776,6 +1873,7 @@
 						onSubtitleSearch={handleSubtitleSearch}
 						onSubtitleAutoSearch={handleSubtitleAutoSearch}
 						onSubtitleSync={isStreamerProfile ? undefined : handleSubtitleSyncFromPopover}
+						onSubtitleGateChange={handleEpisodeGateChange}
 						onSubtitleDelete={handleSubtitleDeleteFromPopover}
 						onSeasonDelete={handleSeasonDelete}
 						onEpisodeDelete={handleEpisodeDelete}
@@ -1812,6 +1910,8 @@
 	{series}
 	qualityProfiles={data.qualityProfiles}
 	delayProfiles={data.delayProfiles}
+	languageProfiles={data.languageProfiles}
+	effectiveLanguageProfile={data.effectiveLanguageProfile}
 	rootFolders={data.rootFolders}
 	saving={isSaving}
 	onClose={handleEditClose}

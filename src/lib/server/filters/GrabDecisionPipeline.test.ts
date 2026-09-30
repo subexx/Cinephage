@@ -25,7 +25,7 @@ vi.mock('$lib/server/db/index.js', () => ({
 	db: {
 		select: () => ({
 			from: () => ({
-				where: () => Object.assign([], { limit: () => [] })
+				where: () => Object.assign([], { limit: () => ({ all: () => [], get: () => undefined }) })
 			})
 		}),
 		query: {
@@ -54,7 +54,12 @@ vi.mock('$lib/server/monitoring/specifications/utils.js', () => ({
 vi.mock('drizzle-orm', () => ({
 	and: vi.fn(),
 	eq: vi.fn(),
-	inArray: vi.fn()
+	inArray: vi.fn(),
+	isNull: vi.fn(),
+	like: vi.fn(),
+	or: vi.fn(),
+	notInArray: vi.fn(),
+	sql: vi.fn()
 }));
 
 vi.mock('$lib/server/db/schema.js', () => ({
@@ -67,7 +72,18 @@ vi.mock('$lib/server/db/schema.js', () => ({
 	},
 	movieFiles: { id: 'id', movieId: 'movieId' },
 	movies: { id: 'id', hasFile: 'hasFile' },
-	delayProfiles: { id: 'id', enabled: 'enabled', isDefault: 'isDefault' }
+	delayProfiles: { id: 'id', enabled: 'enabled', isDefault: 'isDefault' },
+	acquisitionIntents: {
+		id: 'id',
+		status: 'status',
+		queueId: 'queueId',
+		identityValue: 'identityValue'
+	},
+	acquisitionReservations: {
+		intentId: 'intentId',
+		targetKey: 'targetKey',
+		releasedAt: 'releasedAt'
+	}
 }));
 
 const { GrabDecisionPipeline } = await import('./GrabDecisionPipeline.js');
@@ -129,16 +145,67 @@ describe('GrabDecisionPipeline', () => {
 		expect(skippedStages.length).toBeGreaterThanOrEqual(5);
 	});
 
+	it('rejects oversized releases when force is false', async () => {
+		mockCalculateEnhancedScore.mockReturnValue({
+			scoringResult: {
+				totalScore: 150,
+				isBanned: false,
+				bannedReasons: [],
+				sizeRejected: true,
+				sizeRejectionReason: 'Movie size 3.66 GB exceeds maximum 2.5 GB',
+				protocolRejected: false,
+				protocolRejectionReason: undefined,
+				meetsMinimum: true
+			},
+			score: 150
+		});
+
+		const ctx = makeGrabDecisionContext({
+			options: { force: false, skipBlocklist: false, allowSidegrade: false, isAutomatic: false }
+		});
+		const decision = await pipeline.evaluate(ctx);
+
+		expect(decision.accepted).toBe(false);
+		expect(decision.rejectionType).toBe('size_rejected');
+	});
+
+	it('skips size validation when force is true (manual grab override)', async () => {
+		mockCalculateEnhancedScore.mockReturnValue({
+			scoringResult: {
+				totalScore: 150,
+				isBanned: false,
+				bannedReasons: [],
+				sizeRejected: true,
+				sizeRejectionReason: 'Movie size 3.66 GB exceeds maximum 2.5 GB',
+				protocolRejected: false,
+				protocolRejectionReason: undefined,
+				meetsMinimum: true
+			},
+			score: 150
+		});
+
+		const ctx = makeGrabDecisionContext({
+			options: { force: true, skipBlocklist: false, allowSidegrade: false, isAutomatic: false }
+		});
+		const decision = await pipeline.evaluate(ctx);
+
+		expect(decision.accepted).toBe(true);
+		const sizeStage = decision.audit.stages.find((s) => s.name === 'sizeValidation');
+		expect(sizeStage?.skipped).toBe(true);
+	});
+
 	it('produces correct stage names and timing in audit trail', async () => {
 		const ctx = makeGrabDecisionContext();
 		const decision = await pipeline.evaluate(ctx);
 
 		const stageNames = decision.audit.stages.map((s) => s.name);
 		expect(stageNames).toEqual([
+			'identity',
 			'blocklist',
 			'scoring',
 			'bannedFormat',
 			'requiredFormats',
+			'language',
 			'sizeValidation',
 			'protocol',
 			'minimumScore',

@@ -27,10 +27,11 @@
 
 	let { result, onDownload, downloading = false, downloaded = false, error }: Props = $props();
 
-	// Score color based on value
+	// Score color based on the normalized 0-100 scale. 70 is the shared
+	// DEFAULT_MINIMUM_SCORE: below it a result would not be auto-downloaded.
 	const scoreColor = $derived.by(() => {
 		if (result.matchScore >= 80) return 'text-success';
-		if (result.matchScore >= 60) return 'text-warning';
+		if (result.matchScore >= 70) return 'text-warning';
 		return 'text-error';
 	});
 </script>
@@ -88,14 +89,14 @@
 			</button>
 		{:else if error}
 			<div class="tooltip tooltip-error" data-tip={error}>
-				<button class="btn gap-1 btn-sm btn-error" onclick={() => onDownload(result)}>
+				<button class="btn gap-1 btn-error btn-sm" onclick={() => onDownload(result)}>
 					<AlertCircle size={14} />
 					Retry
 				</button>
 			</div>
 		{:else}
 			<button
-				class="btn gap-1 btn-sm btn-primary"
+				class="btn gap-1 btn-primary btn-sm"
 				onclick={() => onDownload(result)}
 				disabled={downloading}
 			>

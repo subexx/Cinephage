@@ -8,8 +8,8 @@ import {
 	nntpServerUpdateSchema,
 	libraryUpdateSchema,
 	rootFolderUpdateSchema,
-	languageProfileUpdateSchema,
 	mediaBrowserServerUpdateSchema,
+	mediaBrowserServerTestSchema,
 	movieUpdateSchema,
 	addMovieSchema
 } from './schemas.js';
@@ -140,10 +140,47 @@ describe('update schemas do not backfill defaults', () => {
 		['nntpServerUpdateSchema', nntpServerUpdateSchema, { enabled: false }],
 		['libraryUpdateSchema', libraryUpdateSchema, { isDefault: false }],
 		['rootFolderUpdateSchema', rootFolderUpdateSchema, { isDefault: false }],
-		['languageProfileUpdateSchema', languageProfileUpdateSchema, { isDefault: false }],
 		['mediaBrowserServerUpdateSchema', mediaBrowserServerUpdateSchema, { enabled: false }]
 	])('%s does not synthesize defaults for absent keys', (_name, schema, input) => {
 		expectOnlyProvidedKeys(schema as Parsable, input as Record<string, unknown>);
+	});
+
+	it('mediaBrowserServerTestSchema.partial() omits serverType when the body is empty', () => {
+		const result = mediaBrowserServerTestSchema.partial().safeParse({});
+		expect(result.success).toBe(true);
+		if (!result.success) return;
+		expect(result.data).toEqual({});
+	});
+});
+
+describe('mediaBrowserServerTestSchema', () => {
+	it('does not backfill serverType, so a saved Plex/Emby server is not tested as jellyfin', () => {
+		const result = mediaBrowserServerTestSchema.safeParse({
+			host: 'http://plex.test',
+			apiKey: 'key'
+		});
+		expect(result.success).toBe(true);
+		if (!result.success) return;
+		expect(result.data.serverType).toBeUndefined();
+	});
+
+	it('still requires host and apiKey for the pre-save test endpoint', () => {
+		expect(mediaBrowserServerTestSchema.safeParse({}).success).toBe(false);
+		expect(mediaBrowserServerTestSchema.safeParse({ host: 'http://plex.test' }).success).toBe(
+			false
+		);
+		expect(mediaBrowserServerTestSchema.safeParse({ apiKey: 'key' }).success).toBe(false);
+	});
+
+	it('accepts an explicit serverType', () => {
+		const result = mediaBrowserServerTestSchema.safeParse({
+			host: 'http://plex.test',
+			apiKey: 'key',
+			serverType: 'plex'
+		});
+		expect(result.success).toBe(true);
+		if (!result.success) return;
+		expect(result.data.serverType).toBe('plex');
 	});
 });
 

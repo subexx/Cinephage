@@ -28,7 +28,6 @@ import { ValidationError } from '$lib/errors';
 import {
 	validateRootFolder,
 	getEffectiveScoringProfileId,
-	getLanguageProfileId,
 	fetchMovieDetails,
 	fetchMovieExternalIds,
 	fetchSeriesDetails,
@@ -38,6 +37,7 @@ import {
 } from '$lib/server/library/LibraryAddService.js';
 import { NamingService, type MediaNamingInfo } from '$lib/server/library/naming/NamingService.js';
 import { namingSettingsService } from '$lib/server/library/naming/NamingSettingsService.js';
+import { resolveLocalizedTitlesForFormats } from '$lib/server/library/naming/localization.js';
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { getBlockedTmdbIdSet } from '$lib/server/library/status.js';
 import type {
@@ -198,12 +198,10 @@ export class SmartListService {
 			presetId: updates.presetId ?? existing.presetId ?? undefined,
 			presetSettings:
 				((updates.presetSettings ?? existing.presetSettings) as
-					| Record<string, unknown>
-					| undefined) ?? undefined,
+					Record<string, unknown> | undefined) ?? undefined,
 			externalSourceConfig:
 				((updates.externalSourceConfig ?? existing.externalSourceConfig) as
-					| SmartListExternalSourceConfig
-					| undefined) ?? undefined
+					SmartListExternalSourceConfig | undefined) ?? undefined
 		});
 
 		const [result] = await db
@@ -798,8 +796,13 @@ export class SmartListService {
 			const monitored = list.autoAddMonitored ?? true;
 			const wantsSubtitles = list.wantsSubtitles ?? true;
 			const shouldSearch = _searchOnAdd && monitored;
+			const owningLibrary = await getLibraryEntityService().resolveOwningLibraryForRootFolder(
+				list.rootFolderId,
+				item.mediaType === 'movie' ? 'movie' : 'tv'
+			);
 			const scoringProfileId = await getEffectiveScoringProfileId(
-				list.scoringProfileId ?? undefined
+				list.scoringProfileId ?? undefined,
+				owningLibrary
 			);
 
 			if (item.mediaType === 'movie') {
@@ -826,6 +829,7 @@ export class SmartListService {
 				}
 
 				// Fetch movie details from TMDB
+				await validateRootFolder(list.rootFolderId, 'movie', { requireWritable: true });
 				const movieDetails = await fetchMovieDetails(item.tmdbId);
 				const year = movieDetails.release_date
 					? new Date(movieDetails.release_date).getFullYear()
@@ -833,6 +837,7 @@ export class SmartListService {
 
 				const { imdbId } = await fetchMovieExternalIds(item.tmdbId);
 
+				const localizedTitles = await resolveLocalizedTitlesForFormats('movie', item.tmdbId);
 				const config = namingSettingsService.getConfigSync();
 				const namingService = new NamingService(config);
 				const folderName = namingService.generateMovieFolderName({
@@ -841,21 +846,25 @@ export class SmartListService {
 					year,
 					tmdbId: item.tmdbId,
 					imdbId,
-					collectionName: movieDetails.belongs_to_collection?.name ?? undefined
+					collectionName: movieDetails.belongs_to_collection?.name ?? undefined,
+					localizedTitles
 				} as MediaNamingInfo);
 
-				const languageProfileId = await getLanguageProfileId(wantsSubtitles, item.tmdbId);
+				// Honor the list's language profile; otherwise inherit (NULL) — the
+				// instance default is resolved at read time, never stamped here.
+				const languageProfileId = wantsSubtitles ? (list.languageProfileId ?? null) : null;
 				const owningLibrary = await getLibraryEntityService().resolveOwningLibraryForRootFolder(
 					list.rootFolderId,
 					'movie'
 				);
 
-				const [newMovie] = await db
+				const [insertedMovie] = await db
 					.insert(movies)
 					.values({
 						tmdbId: item.tmdbId,
 						imdbId,
 						title: movieDetails.title,
+						originalLanguage: movieDetails.original_language,
 						originalTitle: movieDetails.original_title,
 						year,
 						overview: movieDetails.overview,
@@ -873,7 +882,15 @@ export class SmartListService {
 						wantsSubtitles,
 						languageProfileId
 					})
+					.onConflictDoNothing()
 					.returning();
+				const newMovie =
+					insertedMovie ??
+					(await db
+						.select()
+						.from(movies)
+						.where(eq(movies.tmdbId, item.tmdbId))
+						.then((rows) => rows[0]));
 
 				await db
 					.update(smartListItems)
@@ -922,6 +939,7 @@ export class SmartListService {
 				}
 
 				// Fetch series details from TMDB
+				await validateRootFolder(list.rootFolderId, 'tv', { requireWritable: true });
 				const seriesDetails = await fetchSeriesDetails(item.tmdbId);
 				const year = seriesDetails.first_air_date
 					? new Date(seriesDetails.first_air_date).getFullYear()
@@ -929,6 +947,7 @@ export class SmartListService {
 
 				const { tvdbId, imdbId } = await fetchSeriesExternalIds(item.tmdbId);
 
+				const localizedTitles = await resolveLocalizedTitlesForFormats('series', item.tmdbId);
 				const config = namingSettingsService.getConfigSync();
 				const namingService = new NamingService(config);
 				const folderName = namingService.generateSeriesFolderName({
@@ -937,22 +956,26 @@ export class SmartListService {
 					year,
 					tvdbId,
 					tmdbId: item.tmdbId,
-					imdbId
+					imdbId,
+					localizedTitles
 				} as MediaNamingInfo);
 
-				const languageProfileId = await getLanguageProfileId(wantsSubtitles, item.tmdbId);
+				// Honor the list's language profile; otherwise inherit (NULL) — the
+				// instance default is resolved at read time, never stamped here.
+				const languageProfileId = wantsSubtitles ? (list.languageProfileId ?? null) : null;
 				const owningLibrary = await getLibraryEntityService().resolveOwningLibraryForRootFolder(
 					list.rootFolderId,
 					'tv'
 				);
 
-				const [newSeries] = await db
+				const [insertedSeries] = await db
 					.insert(series)
 					.values({
 						tmdbId: item.tmdbId,
 						tvdbId,
 						imdbId,
 						title: seriesDetails.name,
+						originalLanguage: seriesDetails.original_language,
 						originalTitle: seriesDetails.original_name,
 						year,
 						overview: seriesDetails.overview,
@@ -978,7 +1001,15 @@ export class SmartListService {
 						wantsSubtitles,
 						languageProfileId
 					})
+					.onConflictDoNothing()
 					.returning();
+				const newSeries =
+					insertedSeries ??
+					(await db
+						.select()
+						.from(series)
+						.where(eq(series.tmdbId, item.tmdbId))
+						.then((rows) => rows[0]));
 
 				await this.createSeasonsAndEpisodes(newSeries.id, item.tmdbId, monitored);
 
@@ -1359,8 +1390,13 @@ export class SmartListService {
 		);
 
 		// Get effective scoring profile
+		const autoAddOwningLibrary = await getLibraryEntityService().resolveOwningLibraryForRootFolder(
+			list.rootFolderId,
+			mediaType
+		);
 		const effectiveProfileId = await getEffectiveScoringProfileId(
-			list.scoringProfileId ?? undefined
+			list.scoringProfileId ?? undefined,
+			autoAddOwningLibrary
 		);
 		const shouldSearch = list.autoAddBehavior === 'add_and_search';
 		const monitored = list.autoAddMonitored ?? true;
@@ -1430,6 +1466,9 @@ export class SmartListService {
 
 		// Process only new items
 		const newItems = items.filter((i) => !existingMovieIds.has(i.tmdbId));
+		if (newItems.length > 0) {
+			await validateRootFolder(list.rootFolderId!, 'movie', { requireWritable: true });
+		}
 
 		for (const item of newItems) {
 			try {
@@ -1443,6 +1482,7 @@ export class SmartListService {
 				// Extract external IDs before folder name so all tokens are available
 				const { imdbId } = await fetchMovieExternalIds(item.tmdbId);
 
+				const localizedTitles = await resolveLocalizedTitlesForFormats('movie', item.tmdbId);
 				const config = namingSettingsService.getConfigSync();
 				const namingService = new NamingService(config);
 				const folderName = namingService.generateMovieFolderName({
@@ -1451,23 +1491,27 @@ export class SmartListService {
 					year,
 					tmdbId: item.tmdbId,
 					imdbId,
-					collectionName: movieDetails.belongs_to_collection?.name ?? undefined
+					collectionName: movieDetails.belongs_to_collection?.name ?? undefined,
+					localizedTitles
 				} as MediaNamingInfo);
 
 				// Get the language profile if subtitles wanted
-				const languageProfileId = await getLanguageProfileId(wantsSubtitles, item.tmdbId);
+				// Honor the list's language profile; otherwise inherit (NULL) — the
+				// instance default is resolved at read time, never stamped here.
+				const languageProfileId = wantsSubtitles ? (list.languageProfileId ?? null) : null;
 				const owningLibrary = await getLibraryEntityService().resolveOwningLibraryForRootFolder(
 					list.rootFolderId!,
 					'movie'
 				);
 
 				// Insert movie into database
-				const [newMovie] = await db
+				const [insertedMovie] = await db
 					.insert(movies)
 					.values({
 						tmdbId: item.tmdbId,
 						imdbId,
 						title: movieDetails.title,
+						originalLanguage: movieDetails.original_language,
 						originalTitle: movieDetails.original_title,
 						year,
 						overview: movieDetails.overview,
@@ -1485,7 +1529,15 @@ export class SmartListService {
 						wantsSubtitles,
 						languageProfileId
 					})
+					.onConflictDoNothing()
 					.returning();
+				const newMovie =
+					insertedMovie ??
+					(await db
+						.select()
+						.from(movies)
+						.where(eq(movies.tmdbId, item.tmdbId))
+						.then((rows) => rows[0]));
 
 				// Update smart list item
 				await db
@@ -1579,6 +1631,9 @@ export class SmartListService {
 
 		// Process only new items
 		const newItems = items.filter((i) => !existingSeriesIds.has(i.tmdbId));
+		if (newItems.length > 0) {
+			await validateRootFolder(list.rootFolderId!, 'tv', { requireWritable: true });
+		}
 
 		for (const item of newItems) {
 			try {
@@ -1593,6 +1648,7 @@ export class SmartListService {
 				// Get external IDs
 				const { tvdbId, imdbId } = await fetchSeriesExternalIds(item.tmdbId);
 
+				const localizedTitles = await resolveLocalizedTitlesForFormats('series', item.tmdbId);
 				const config = namingSettingsService.getConfigSync();
 				const namingService = new NamingService(config);
 				const folderName = namingService.generateSeriesFolderName({
@@ -1601,24 +1657,28 @@ export class SmartListService {
 					year,
 					tvdbId,
 					tmdbId: item.tmdbId,
-					imdbId
+					imdbId,
+					localizedTitles
 				} as MediaNamingInfo);
 
 				// Get the language profile if subtitles wanted
-				const languageProfileId = await getLanguageProfileId(wantsSubtitles, item.tmdbId);
+				// Honor the list's language profile; otherwise inherit (NULL) — the
+				// instance default is resolved at read time, never stamped here.
+				const languageProfileId = wantsSubtitles ? (list.languageProfileId ?? null) : null;
 				const owningLibrary = await getLibraryEntityService().resolveOwningLibraryForRootFolder(
 					list.rootFolderId!,
 					'tv'
 				);
 
 				// Insert series into database
-				const [newSeries] = await db
+				const [insertedSeries] = await db
 					.insert(series)
 					.values({
 						tmdbId: item.tmdbId,
 						tvdbId,
 						imdbId,
 						title: seriesDetails.name,
+						originalLanguage: seriesDetails.original_language,
 						originalTitle: seriesDetails.original_name,
 						year,
 						overview: seriesDetails.overview,
@@ -1644,7 +1704,15 @@ export class SmartListService {
 						wantsSubtitles,
 						languageProfileId
 					})
+					.onConflictDoNothing()
 					.returning();
+				const newSeries =
+					insertedSeries ??
+					(await db
+						.select()
+						.from(series)
+						.where(eq(series.tmdbId, item.tmdbId))
+						.then((rows) => rows[0]));
 
 				// Create seasons and episodes
 				await this.createSeasonsAndEpisodes(newSeries.id, item.tmdbId, monitored);
@@ -1714,7 +1782,7 @@ export class SmartListService {
 				const seasonMonitored = monitored && !isSpecials;
 
 				// Create season (episodeCount will be recalculated after episodes are inserted)
-				const [newSeason] = await db
+				const [insertedSeason] = await db
 					.insert(seasons)
 					.values({
 						seriesId,
@@ -1726,7 +1794,20 @@ export class SmartListService {
 						episodeCount: 0, // Will be recalculated to only aired episodes
 						monitored: seasonMonitored
 					})
+					.onConflictDoNothing()
 					.returning();
+				const newSeason =
+					insertedSeason ??
+					(await db
+						.select()
+						.from(seasons)
+						.where(
+							and(
+								eq(seasons.seriesId, seriesId),
+								eq(seasons.seasonNumber, seasonInfo.season_number)
+							)
+						)
+						.then((rows) => rows[0]));
 
 				// Fetch season details for episodes
 				try {
@@ -1747,7 +1828,7 @@ export class SmartListService {
 						}));
 
 						if (episodesToInsert.length > 0) {
-							await db.insert(episodes).values(episodesToInsert);
+							await db.insert(episodes).values(episodesToInsert).onConflictDoNothing();
 							// Only count aired episodes (exclude specials and unaired)
 							const today = todayDateString();
 							const airedCount = episodesToInsert.filter(

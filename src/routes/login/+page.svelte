@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { User, Lock, AlertCircle, Eye, EyeOff } from 'lucide-svelte';
 	import { authClient } from '$lib/auth/client.js';
+	import { ensureVersionPrefix } from '$lib/version.js';
 	import * as m from '$lib/paraglide/messages.js';
 
 	const GITHUB_URL = 'https://github.com/MoldyTaint/Cinephage';
@@ -123,7 +124,7 @@
 				<!-- Remember Me -->
 				<div class="form-control">
 					<label class="label cursor-pointer justify-start gap-2">
-						<input type="checkbox" class="checkbox" bind:checked={rememberMe} />
+						<input type="checkbox" class="checkbox checkbox-primary" bind:checked={rememberMe} />
 						<span class="label-text">{m.login_rememberMe()}</span>
 					</label>
 				</div>
@@ -143,12 +144,12 @@
 			</form>
 
 			<div class="mt-6 flex items-center justify-center gap-4 text-xs text-base-content/40">
-				<span>v{data.version}</span>
+				<span>{ensureVersionPrefix(data.version)}</span>
 				<a
 					href={DISCORD_URL}
 					target="_blank"
 					rel="noopener noreferrer"
-					class="flex items-center gap-1 hover:text-base-content/70 transition-colors"
+					class="flex items-center gap-1 transition-colors hover:text-base-content/70"
 				>
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
@@ -168,7 +169,7 @@
 					href={GITHUB_URL}
 					target="_blank"
 					rel="noopener noreferrer"
-					class="flex items-center gap-1 hover:text-base-content/70 transition-colors"
+					class="flex items-center gap-1 transition-colors hover:text-base-content/70"
 				>
 					<svg
 						xmlns="http://www.w3.org/2000/svg"

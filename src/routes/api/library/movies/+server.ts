@@ -4,6 +4,7 @@ import { db } from '$lib/server/db/index.js';
 import { movies, movieFiles, rootFolders } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { addMovieSchema } from '$lib/validation/schemas.js';
+import { getLanguageProfileService } from '$lib/server/subtitles/services/LanguageProfileService.js';
 import { buildMovieFolderName } from '$lib/server/library/naming/naming-helpers.js';
 import { namingSettingsService } from '$lib/server/library/naming/NamingSettingsService.js';
 import {
@@ -14,7 +15,6 @@ import {
 	validateRootFolder,
 	getAnimeSubtypeEnforcement,
 	getEffectiveScoringProfileId,
-	getLanguageProfileId,
 	fetchMovieDetails,
 	fetchMovieExternalIds,
 	triggerMovieSearch
@@ -24,8 +24,10 @@ import { fetchAndStoreMovieAlternateTitles } from '$lib/server/services/Alternat
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { ValidationError, isAppError } from '$lib/errors';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents.js';
-import { logger } from '$lib/logging';
 import { requireAuth } from '$lib/server/auth/authorization.js';
+import { createChildLogger } from '$lib/logging';
+
+const logger = createChildLogger({ module: 'LibraryMoviesApi', logDomain: 'scans' });
 
 /**
  * GET /api/library/movies
@@ -149,8 +151,21 @@ export const POST: RequestHandler = async (event) => {
 			minimumAvailability,
 			availabilityDelay,
 			searchOnAdd: shouldSearch,
-			wantsSubtitles
+			wantsSubtitles,
+			languageProfileId,
+			subtitleRequirementsOverride
 		} = result.data;
+
+		// A client-provided language profile must exist.
+		if (languageProfileId) {
+			const languageProfile = await getLanguageProfileService().getProfile(languageProfileId);
+			if (!languageProfile) {
+				return json(
+					{ success: false, error: `Language profile not found: ${languageProfileId}` },
+					{ status: 400 }
+				);
+			}
+		}
 
 		// Check if movie already exists
 		const existingMovie = await db
@@ -184,6 +199,7 @@ export const POST: RequestHandler = async (event) => {
 
 		// Verify root folder exists and is for movies (with optional anime subtype enforcement)
 		await validateRootFolder(rootFolderId, 'movie', {
+			requireWritable: true,
 			enforceAnimeSubtype,
 			isAnimeMedia,
 			mediaTitle: movieDetails.title
@@ -221,10 +237,7 @@ export const POST: RequestHandler = async (event) => {
 		const { imdbId } = await fetchMovieExternalIds(tmdbId);
 
 		// Get the effective scoring profile (shared logic)
-		const effectiveProfileId = await getEffectiveScoringProfileId(scoringProfileId);
-
-		// Get the language profile if subtitles wanted (shared logic)
-		const languageProfileId = await getLanguageProfileId(wantsSubtitles, tmdbId);
+		const effectiveProfileId = await getEffectiveScoringProfileId(scoringProfileId, owningLibrary);
 
 		// Insert movie into database
 		const [newMovie] = await db
@@ -233,6 +246,7 @@ export const POST: RequestHandler = async (event) => {
 				tmdbId,
 				imdbId,
 				title: movieDetails.title,
+				originalLanguage: movieDetails.original_language,
 				originalTitle: movieDetails.original_title,
 				year,
 				overview: movieDetails.overview,
@@ -250,7 +264,8 @@ export const POST: RequestHandler = async (event) => {
 				availabilityDelay,
 				hasFile: false,
 				wantsSubtitles,
-				languageProfileId,
+				languageProfileId: languageProfileId ?? null,
+				subtitleRequirementsOverride: subtitleRequirementsOverride ?? null,
 				tmdbCollectionId: collectionData?.id ?? null,
 				collectionName: collectionData?.name ?? null,
 				releaseDate: movieDetails.release_date ?? null

@@ -15,12 +15,18 @@ import { createChildLogger } from '$lib/logging';
 const logger = createChildLogger({ logDomain: 'system' as const });
 import { randomUUID } from 'node:crypto';
 import { MediaBrowserClient } from './MediaBrowserClient';
+
+// Delay before retrying a failed pre-delete (transient Jellyfin 500s during
+// scanner races clear within a couple of seconds).
+const PRE_DELETE_RETRY_DELAY_MS = 2000;
 import type {
 	MediaBrowserServerInput,
 	MediaBrowserTestConfig,
 	MediaBrowserTestResult,
-	MediaBrowserServerPublic
+	MediaBrowserServerPublic,
+	MediaEventKind
 } from './types';
+import { MEDIA_EVENT_KIND_TOGGLE } from './types';
 
 /**
  * Convert database record to public info (excludes API key)
@@ -220,16 +226,34 @@ class MediaBrowserManager {
 	// ========================================================================
 
 	/**
-	 * Test server configuration (before saving)
+	 * Test server configuration (before saving).
+	 *
+	 * The running server decides the type: the public product probe wins over
+	 * the caller's pick (which is only a fallback when nothing answers), and a
+	 * type mismatch that fails auth is retried with the detected type.
 	 */
 	async testServerConfig(config: MediaBrowserTestConfig): Promise<MediaBrowserTestResult> {
+		const host = config.host.replace(/\/+$/, '');
+		const detected = await MediaBrowserClient.detectServerType(host, config.apiKey);
+		const serverType = detected?.type ?? config.serverType ?? 'jellyfin';
+
 		const client = new MediaBrowserClient({
-			host: config.host.replace(/\/+$/, ''),
+			host,
 			apiKey: config.apiKey,
-			serverType: config.serverType ?? 'jellyfin'
+			serverType
 		});
 
-		return client.test();
+		const result = await client.test();
+
+		if (!result.success && detected && detected.type !== serverType) {
+			return new MediaBrowserClient({
+				host,
+				apiKey: config.apiKey,
+				serverType: detected.type
+			}).test();
+		}
+
+		return result;
 	}
 
 	/**
@@ -286,6 +310,19 @@ class MediaBrowserManager {
 			updates.serverName = result.serverInfo.serverName;
 			updates.serverVersion = result.serverInfo.version;
 			updates.serverId = result.serverInfo.id;
+
+			// Connect/test is authoritative for which product runs: when the
+			// server identifies itself as a different type than the stored one,
+			// adopt the detected type (and drop the stale client).
+			const detectedType = result.serverInfo.detectedType;
+			if (detectedType && detectedType !== record.serverType) {
+				updates.serverType = detectedType;
+				this.clearClientCache(id);
+				logger.info(
+					{ id, storedType: record.serverType, detectedType },
+					'[MediaBrowserManager] Corrected server type from running server'
+				);
+			}
 		}
 
 		await db.update(mediaBrowserServers).set(updates).where(eq(mediaBrowserServers.id, id));
@@ -332,22 +369,62 @@ class MediaBrowserManager {
 
 	/**
 	 * Delete a media item (series or movie) from all enabled Jellyfin/Emby servers
-	 * by its TMDB ID. This removes only the server's library entry — files on disk
-	 * are never touched. Used before renaming a folder to avoid the ghost-entry
-	 * resurrection loop (jellyfin#16883).
+	 * by its TMDB ID. DESTRUCTIVE on Jellyfin/Emby: their item-delete API also
+	 * deletes the item's file location, so callers MUST only invoke this after
+	 * the file/folder has already been moved locally (post-rename) — the stale
+	 * stored path then makes the file deletion a no-op and the call only clears
+	 * the old library entry (jellyfin#16883). Plex is skipped entirely.
 	 *
 	 * Best-effort: failures from unreachable servers or stale item IDs are logged
-	 * but do not block the caller. Returns the count of servers the item was
-	 * successfully deleted from.
+	 * but do not block the caller. A failed delete is retried once after a short
+	 * delay (live-observed: Jellyfin can return a transient HTTP 500 while its own
+	 * scanner races the delete); a second failure is warn-logged and skipped —
+	 * never thrown. Returns the count of servers the item was successfully
+	 * deleted from.
+	 *
+	 * @param options.eventKind - When given, servers whose matching event toggle
+	 *   (e.g. onRename for 'rename') is disabled are skipped. Omit to target all
+	 *   enabled servers (legacy behavior).
+	 * @param options.retryDelayMs - Delay before the single retry (default 2s;
+	 *   overridable for tests).
 	 */
-	async deleteMediaItemByTmdb(tmdbId: number, itemType: 'movie' | 'series'): Promise<number> {
+	async deleteMediaItemByTmdb(
+		tmdbId: number,
+		itemType: 'movie' | 'series',
+		options?: { eventKind?: MediaEventKind; retryDelayMs?: number }
+	): Promise<number> {
 		if (!tmdbId) return 0;
 
+		const retryDelayMs = options?.retryDelayMs ?? PRE_DELETE_RETRY_DELAY_MS;
 		const servers = await this.getEnabledServers();
 		let deleted = 0;
 
 		for (const server of servers) {
 			try {
+				// Plex has no per-item delete API (deleteItem always returns false),
+				// so attempting one just burns the retry delay and logs a misleading
+				// warning. Plex reconciles renames via path-based section refreshes.
+				if (server.serverType === 'plex') {
+					continue;
+				}
+
+				if (options?.eventKind) {
+					const toggle = server[MEDIA_EVENT_KIND_TOGGLE[options.eventKind]];
+					if (toggle === false) {
+						logger.debug(
+							{
+								serverId: server.id,
+								serverName: server.name,
+								eventKind: options.eventKind,
+								tmdbId,
+								itemType
+							},
+							'[MediaBrowserManager] Skipping pre-delete — server event toggle disabled'
+						);
+						continue;
+					}
+				}
+
 				const synced = await db
 					.select({ serverItemId: mediaServerSyncedItems.serverItemId })
 					.from(mediaServerSyncedItems)
@@ -363,8 +440,31 @@ class MediaBrowserManager {
 				if (synced.length === 0) continue;
 
 				const client = this.clientCache.get(server.id) ?? this.createClient(server);
-				const ok = await client.deleteItem(synced[0].serverItemId);
-				if (ok) deleted++;
+				const itemId = synced[0].serverItemId;
+
+				let ok = await client.deleteItem(itemId);
+				if (!ok) {
+					// One retry after a short delay: Jellyfin has been observed to
+					// fail with a transient 500 while its scanner is mid-pass over
+					// the very item being deleted.
+					await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+					ok = await client.deleteItem(itemId);
+				}
+
+				if (ok) {
+					deleted++;
+				} else {
+					logger.warn(
+						{
+							serverId: server.id,
+							serverName: server.name,
+							tmdbId,
+							itemType,
+							itemId
+						},
+						'[MediaBrowserManager] Failed to delete media item from server after retry'
+					);
+				}
 			} catch (error) {
 				logger.warn(
 					{

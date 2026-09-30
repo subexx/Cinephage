@@ -1,4 +1,5 @@
-import type { AnySQLiteColumn, AnySQLiteTable } from 'drizzle-orm/sqlite-core';
+import type { AnySQLiteColumn, AnySQLiteTable, SQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { getTableColumns } from 'drizzle-orm';
 
 import { ValidationError } from '$lib/errors';
 import { logger } from '$lib/logging';
@@ -20,6 +21,7 @@ import {
 	downloadClients,
 	indexers,
 	languageProfiles,
+	languageSettings,
 	libraries,
 	libraryRootFolders,
 	librarySettings,
@@ -35,7 +37,6 @@ import {
 	smartLists,
 	stalkerPortals,
 	subtitleProviders,
-	subtitleSettings,
 	taskSettings,
 	indexerStatus
 } from '$lib/server/db/schema';
@@ -68,8 +69,8 @@ type TableName =
 	| 'namingPresets'
 	| 'delayProfiles'
 	| 'languageProfiles'
+	| 'languageSettings'
 	| 'subtitleProviders'
-	| 'subtitleSettings'
 	| 'indexers'
 	| 'nntpServers'
 	| 'mediaBrowserServers'
@@ -81,13 +82,7 @@ type TableName =
 	| 'smartLists';
 
 export type BackupSectionName =
-	| 'system'
-	| 'profiles'
-	| 'downloads'
-	| 'indexers'
-	| 'subtitles'
-	| 'integrations'
-	| 'liveTv';
+	'system' | 'profiles' | 'downloads' | 'indexers' | 'subtitles' | 'integrations' | 'liveTv';
 
 export interface ConfigurationBackupSectionManifest {
 	id: BackupSectionName;
@@ -257,16 +252,16 @@ const TABLES: TableBackupConfig[] = [
 		conflictTarget: languageProfiles.id
 	},
 	{
+		name: 'languageSettings',
+		table: languageSettings,
+		getRecordKey: (row) => String(row.id),
+		conflictTarget: languageSettings.id
+	},
+	{
 		name: 'subtitleProviders',
 		table: subtitleProviders,
 		getRecordKey: (row) => String(row.id),
 		conflictTarget: subtitleProviders.id
-	},
-	{
-		name: 'subtitleSettings',
-		table: subtitleSettings,
-		getRecordKey: (row) => String(row.key),
-		conflictTarget: subtitleSettings.key
 	},
 	{
 		name: 'indexers',
@@ -359,7 +354,13 @@ const SECTIONS: Array<{
 	{
 		id: 'profiles',
 		label: 'Profiles & Formats',
-		tableNames: ['scoringProfiles', 'customFormats', 'delayProfiles', 'languageProfiles']
+		tableNames: [
+			'scoringProfiles',
+			'customFormats',
+			'delayProfiles',
+			'languageProfiles',
+			'languageSettings'
+		]
 	},
 	{
 		id: 'downloads',
@@ -374,7 +375,7 @@ const SECTIONS: Array<{
 	{
 		id: 'subtitles',
 		label: 'Subtitles',
-		tableNames: ['subtitleProviders', 'subtitleSettings']
+		tableNames: ['subtitleProviders']
 	},
 	{
 		id: 'integrations',
@@ -448,6 +449,12 @@ function extractSecrets(
 		};
 	}
 
+	// Dates must be treated as leaves: walking them with Object.entries (which
+	// yields nothing) silently reduces them to `{}` in the exported backup.
+	if (value instanceof Date) {
+		return { sanitized: value };
+	}
+
 	if (value && typeof value === 'object') {
 		const sanitizedObject: Record<string, unknown> = {};
 		const secretObject: Record<string, unknown> = {};
@@ -489,6 +496,41 @@ function deepMergeRecord<T>(base: T, secret: unknown): T {
 	}
 
 	return secret as T;
+}
+
+/**
+ * A backup file round-trips through JSON, which serializes Date values to
+ * ISO strings. Drizzle's timestamp-mode columns expect Date instances on
+ * write (`mapToDriverValue` calls `value.getTime()`), so restoring raw JSON
+ * rows fails with "value.getTime is not a function". Convert each value
+ * according to its drizzle column type before insert.
+ */
+function deserializeRestoredRow(
+	table: AnySQLiteTable,
+	row: Record<string, unknown>
+): Record<string, unknown> {
+	const columns = getTableColumns(table) as Record<string, SQLiteColumn>;
+	const converted: Record<string, unknown> = { ...row };
+
+	for (const [key, column] of Object.entries(columns)) {
+		const value = converted[key];
+		if (value === null || value === undefined) continue;
+		if (column.dataType === 'date') {
+			if (typeof value === 'string' || typeof value === 'number') {
+				const parsed = new Date(value);
+				if (!Number.isNaN(parsed.getTime())) {
+					converted[key] = parsed;
+					continue;
+				}
+			}
+			// Backups created before Date columns were preserved carry `{}` in
+			// their place. The original value is unrecoverable, so drop the key
+			// and let the schema default supply a fresh timestamp.
+			delete converted[key];
+		}
+	}
+
+	return converted;
 }
 
 function restoreExistingSensitiveValues<T>(incoming: T, existing: unknown, fieldName?: string): T {
@@ -570,7 +612,7 @@ export class ConfigurationBackupService {
 						{
 							table: config.name,
 							component: 'ConfigurationBackupService',
-							logDomain: 'settings'
+							logDomain: 'system'
 						},
 						'Configuration backup failed while reading required table'
 					);
@@ -583,7 +625,7 @@ export class ConfigurationBackupService {
 						err: error,
 						table: config.name,
 						component: 'ConfigurationBackupService',
-						logDomain: 'settings'
+						logDomain: 'system'
 					},
 					'Skipping table during backup export (table may not exist)'
 				);
@@ -707,7 +749,7 @@ export class ConfigurationBackupService {
 			) as unknown as BackupSecretPayload;
 		} catch (error) {
 			logger.error(
-				{ err: error, component: 'ConfigurationBackupService', logDomain: 'settings' },
+				{ err: error, component: 'ConfigurationBackupService', logDomain: 'system' },
 				'Failed to decrypt configuration backup'
 			);
 			throw new ValidationError('Invalid backup passphrase or corrupted secret payload');
@@ -744,9 +786,9 @@ export class ConfigurationBackupService {
 				const row = rawRow as Record<string, unknown>;
 				const recordKey = config.getRecordKey(row);
 				const restoredWithSecrets = deepMergeRecord(row, tableSecrets[recordKey]);
-				const restored = restoreExistingSensitiveValues(
-					restoredWithSecrets,
-					existingRowMap.get(recordKey)
+				const restored = deserializeRestoredRow(
+					config.table,
+					restoreExistingSensitiveValues(restoredWithSecrets, existingRowMap.get(recordKey))
 				);
 
 				// Debrid token portable transform: re-encrypt the plaintext token

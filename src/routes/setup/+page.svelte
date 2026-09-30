@@ -3,6 +3,7 @@
 	import { User, Lock, CheckCircle, AlertCircle } from 'lucide-svelte';
 	import { authClient } from '$lib/auth/client.js';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { ensureVersionPrefix } from '$lib/version.js';
 
 	const GITHUB_URL = 'https://github.com/MoldyTaint/Cinephage';
 	const DISCORD_URL = 'https://discord.gg/scGCBTSWEt';
@@ -386,12 +387,12 @@
 			{/if}
 
 			<div class="mt-6 flex items-center justify-center gap-4 text-xs text-base-content/40">
-				<span>v{data.version}</span>
+				<span>{ensureVersionPrefix(data.version)}</span>
 				<a
 					href={DISCORD_URL}
 					target="_blank"
 					rel="noopener noreferrer"
-					class="flex items-center gap-1 hover:text-base-content/70 transition-colors"
+					class="flex items-center gap-1 transition-colors hover:text-base-content/70"
 				>
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
@@ -411,7 +412,7 @@
 					href={GITHUB_URL}
 					target="_blank"
 					rel="noopener noreferrer"
-					class="flex items-center gap-1 hover:text-base-content/70 transition-colors"
+					class="flex items-center gap-1 transition-colors hover:text-base-content/70"
 				>
 					<svg
 						xmlns="http://www.w3.org/2000/svg"

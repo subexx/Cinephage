@@ -2,7 +2,10 @@
  * Shared streaming types used by the active Cinephage API path.
  */
 
-export type StreamType = 'hls' | 'm3u8' | 'mp4';
+import type { EffectiveAudioPreference } from './language-utils';
+import type { SubtitleRequirement } from '$lib/shared/language-profile';
+
+export type StreamType = 'hls' | 'm3u8' | 'mp4' | 'dash' | 'file';
 
 export type StreamStatus = 'working' | 'down' | 'unknown' | 'validating';
 
@@ -11,6 +14,10 @@ export interface StreamSubtitle {
 	label: string;
 	language: string;
 	isDefault?: boolean;
+	/** Provider-reported forced flag. */
+	isForced?: boolean;
+	/** Provider-reported hearing-impaired flag. */
+	isHearingImpaired?: boolean;
 }
 
 export interface StreamSource {
@@ -18,6 +25,10 @@ export interface StreamSource {
 	title: string;
 	url: string;
 	type: StreamType;
+	/** Raw protocol/container value reported by the upstream API, when available. */
+	sourceFormat?: string;
+	/** Authoritative media type derived from the upstream protocol/container metadata. */
+	sourceContentType?: string;
 	referer: string;
 	requiresSegmentProxy: boolean;
 	status?: StreamStatus;
@@ -26,6 +37,10 @@ export interface StreamSource {
 	headers?: Record<string, string>;
 	provider?: string;
 	subtitles?: StreamSubtitle[];
+	/** True when the source must be fetched through our proxy (signed/cookie-protected CDNs). */
+	requiresProxy?: boolean;
+	/** Epoch seconds when the source URL (and its signed headers) stop being valid. */
+	expiresAt?: number;
 }
 
 export interface StreamResult {
@@ -93,7 +108,7 @@ export interface CinephageApiStream {
 	url: string;
 	provider: string;
 	quality: string;
-	protocol: 'hls' | 'mp4';
+	protocol: string;
 	headers: Record<string, string>;
 	subtitles?: StreamSubtitle[];
 }
@@ -132,6 +147,8 @@ export interface PlaybackSessionSubtitle {
 	label: string;
 	language: string;
 	isDefault?: boolean;
+	isForced?: boolean;
+	isHearingImpaired?: boolean;
 }
 
 export interface PlaybackSessionResource {
@@ -139,6 +156,7 @@ export interface PlaybackSessionResource {
 	url: string;
 	kind: SessionResourceKind;
 	extension: string;
+	segmentFallbackExtension?: string;
 	createdAt: number;
 }
 
@@ -159,10 +177,43 @@ export interface PlaybackSession {
 	provider?: string;
 	entryUrl: string;
 	sourceType: StreamType;
+	sourceFormat?: string;
+	sourceContentType?: string;
 	requestHeaders: Record<string, string>;
 	subtitles: PlaybackSessionSubtitle[];
 	createdAt: number;
 	expiresAt: number;
+	/** Epoch seconds when the underlying source URL/signature stops being valid, if known. */
+	sourceExpiresAt?: number;
+	/**
+	 * Resolved audio-preference snapshot captured when the session was created.
+	 * Session reuse requires the current preference to deep-equal this value;
+	 * absent on sessions created before audio preference existed, which are
+	 * only reusable while the current request resolves to the no-profile
+	 * default (see DEFAULT_EFFECTIVE_AUDIO_PREFERENCE).
+	 */
+	audioPreference?: EffectiveAudioPreference;
+	/**
+	 * Language tag of the chosen source, or the original language when that
+	 * preference drove the pick of an untagged source; null when neither
+	 * applies (e.g. an untagged source picked as a neutral fallback).
+	 */
+	chosenAudioLanguage?: string | null;
+	/**
+	 * Ordered subtitle language preferences from the item's effective
+	 * subtitle requirements (first = most wanted), captured at session
+	 * creation. The playlist rewriter marks the first track satisfying the
+	 * highest-priority language as DEFAULT=YES; empty/absent falls back to
+	 * the provider default or the first track.
+	 */
+	preferredSubtitleLanguages?: string[];
+	/**
+	 * Full effective subtitle requirements snapshot (tag + variant +
+	 * accessibility) captured at session creation. The playlist rewriter marks
+	 * DEFAULT=YES using the shared requirement matcher when present; absent on
+	 * sessions created before requirement-aware selection existed.
+	 */
+	preferredSubtitleRequirements?: SubtitleRequirement[];
 	lastAccessedAt: number;
 	attempts: PlaybackSessionAttempt[];
 	resourceIdsByKey: Record<string, string>;

@@ -379,7 +379,7 @@
 						{#if !selectedItem.inLibrary}
 							<button
 								type="button"
-								class="btn btn-sm btn-primary"
+								class="btn btn-primary btn-sm"
 								onclick={() => addToLibrary(selectedItem!.tmdbId, selectedItem!.title)}
 								disabled={addingIds.has(selectedItem!.tmdbId)}
 							>
@@ -393,7 +393,7 @@
 						{/if}
 						<button
 							type="button"
-							class="btn btn-sm btn-error"
+							class="btn btn-error btn-sm"
 							onclick={() => excludeItem(selectedItem!.tmdbId, selectedItem!.title)}
 							disabled={excludingIds.has(selectedItem!.tmdbId)}
 						>
@@ -465,7 +465,7 @@
 				<Edit class="h-4 w-4" />
 				{m.smartlists_detail_editButton()}
 			</button>
-			<button class="btn btn-sm btn-primary" onclick={addAllToLibrary} disabled={bulkAdding}>
+			<button class="btn btn-primary btn-sm" onclick={addAllToLibrary} disabled={bulkAdding}>
 				{#if bulkAdding}
 					<Loader2 class="h-4 w-4 animate-spin" />
 				{:else}
@@ -510,7 +510,7 @@
 			<label class="label shrink-0 cursor-pointer gap-1.5 py-0 whitespace-nowrap sm:gap-2">
 				<input
 					type="checkbox"
-					class="checkbox checkbox-sm"
+					class="checkbox checkbox-sm checkbox-primary"
 					bind:checked={showExcluded}
 					onchange={() => applyFilters()}
 				/>
@@ -524,7 +524,7 @@
 			<input
 				type="text"
 				placeholder={m.smartlists_detail_searchPlaceholder()}
-				class="input input-md w-full rounded-full border-base-content/20 bg-base-200/60 pr-9 pl-10 transition-all duration-200 placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
+				class="input w-full rounded-full border-base-content/20 bg-base-200/60 pr-9 pl-10 transition-all duration-200 input-md placeholder:text-base-content/40 hover:bg-base-200 focus:border-primary/50 focus:bg-base-200 focus:ring-1 focus:ring-primary/20 focus:outline-none"
 				bind:value={searchQuery}
 				oninput={onSearchInput}
 			/>

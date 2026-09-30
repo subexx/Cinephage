@@ -35,11 +35,9 @@
 		try {
 			await updateUserLanguage(locale);
 
-			setLocale(locale, { reload: false });
-			currentLocale = locale;
-
-			// Step 3: Reload the page to apply translations
-			window.location.reload();
+			// setLocale writes the locale cookie; its default reload re-fetches
+			// SSR output in the new locale.
+			setLocale(locale);
 		} catch (error) {
 			// Only show error if it's not a page reload/navigation interruption
 			if (error instanceof Error && error.name !== 'AbortError') {
@@ -93,7 +91,7 @@
 	</button>
 
 	<ul
-		class="dropdown-content menu z-1 w-40 rounded-box bg-base-200 p-2 shadow"
+		class="menu dropdown-content z-1 w-40 rounded-box bg-base-200 p-2 shadow"
 		class:hidden={!isOpen}
 		role="menu"
 	>

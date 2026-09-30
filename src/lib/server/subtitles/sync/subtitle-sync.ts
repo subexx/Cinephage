@@ -24,7 +24,9 @@ import { standardScoring, denormalizeSplitPenalty } from './scoring.js';
 import { alignNosplit } from './align-nosplit.js';
 import { alignWithSplits } from './align-split.js';
 import { extractSpeechSegments, mergeCloseSegments } from './vad.js';
-import { logger } from '$lib/logging/index.js';
+import { createChildLogger } from '$lib/logging/index.js';
+
+const logger = createChildLogger({ module: 'SubtitleSyncEngine', logDomain: 'subtitles' });
 
 /**
  * Maximum number of VAD speech segments to pass to alignment.
@@ -189,7 +191,11 @@ export async function syncSubtitles(options: SyncOptions): Promise<SyncResult> {
 		// Step 7: Apply deltas and write output
 		const syncedContent = applyDeltas(subtitleContent, perCueDeltas, subtitleFormat);
 		const outputPath = options.outputPath ?? options.subtitlePath;
-		await writeFile(outputPath, syncedContent, 'utf-8');
+		await writeFile(
+			outputPath,
+			syncedContent,
+			options.outputPath ? { encoding: 'utf-8', flag: 'wx' } : 'utf-8'
+		);
 
 		logger.info(`Synced subtitle written to ${outputPath}`);
 

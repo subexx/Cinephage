@@ -35,6 +35,7 @@ export interface DownloadClientFormState {
 	recentPriority: DownloadPriority;
 	olderPriority: DownloadPriority;
 	initialState: DownloadInitialState;
+	sequentialDownload: boolean;
 	downloadPathLocal: string;
 	downloadPathRemote: string;
 	tempPathLocal: string;
@@ -44,6 +45,8 @@ export interface DownloadClientFormState {
 	implementation: DownloadClientImplementation;
 	apiToken?: string;
 	removeAfterImport?: boolean;
+	allowMovies: boolean;
+	allowTv: boolean;
 }
 
 export function serializeDownloadClientForm(
@@ -80,7 +83,9 @@ export function serializeDownloadClientForm(
 			implementation: formState.implementation,
 			enabled: formState.enabled,
 			priority: formState.priority,
-			removeAfterImport: formState.removeAfterImport ?? false
+			removeAfterImport: formState.removeAfterImport ?? false,
+			allowMovies: formState.allowMovies,
+			allowTv: formState.allowTv
 		};
 		const apiToken = formState.apiToken?.trim();
 		if (!(mode === 'edit' && (isBlankOrRedacted(apiToken) || apiToken === '********')) && apiToken)
@@ -106,6 +111,9 @@ export function serializeDownloadClientForm(
 		initialState: formState.initialState,
 		seedRatioLimit: null,
 		seedTimeLimit: null,
+		...(formState.implementation === 'qbittorrent'
+			? { sequentialDownload: formState.sequentialDownload }
+			: {}),
 		downloadPathLocal: formState.downloadPathLocal || null,
 		downloadPathRemote: formState.downloadPathRemote || null,
 		tempPathLocal: formState.tempPathLocal || null,

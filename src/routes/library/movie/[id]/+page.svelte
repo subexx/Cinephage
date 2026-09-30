@@ -12,6 +12,7 @@
 	import { MediaSearchModal } from '$lib/components/search';
 	import { SubtitleSearchModal } from '$lib/components/subtitles';
 	import SubtitleSyncModal from '$lib/components/subtitles/SubtitleSyncModal.svelte';
+	import SubtitleRequirementsSection from '$lib/components/subtitles/SubtitleRequirementsSection.svelte';
 	import DeleteConfirmationModal from '$lib/components/ui/modal/DeleteConfirmationModal.svelte';
 	import {
 		ConfirmationModal,
@@ -45,6 +46,9 @@
 	import { page } from '$app/state';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { resolvePath } from '$lib/utils/routing';
+	import { getLibraryDetailBackHref } from '$lib/utils/libraryReturnNavigation';
+	import { deriveSubtitleProgress } from '$lib/utils/subtitle-status-display.js';
+	import { requirementKey, type SubtitleRequirement } from '$lib/shared/language-profile.js';
 	import { createDynamicSSE } from '$lib/sse';
 	import { getFileName } from '$lib/utils/format.js';
 	import { layoutState, deriveMobileSseStatus } from '$lib/layout.svelte';
@@ -62,6 +66,18 @@
 	let lastMovieId = $state<string | null>(null);
 	const movie = $derived(movieState ?? data.movie);
 	const queueItem = $derived(queueItemState === undefined ? data.queueItem : queueItemState);
+
+	// Requirement-aware subtitle badge view-model. Null when the movie has no
+	// effective profile (the loader then returns a trivially-satisfied status).
+	const subtitleRequirementProgress = $derived(
+		deriveSubtitleProgress(data.subtitleStatus, data.effectiveLanguageProfile?.profile ?? null)
+	);
+
+	// Back link target: the validated returnTo URL carries the exact filtered
+	// list state from the page the user navigated from (issue #515). It stays
+	// absolute — LibraryMovieHeader applies resolvePath() exactly once, and
+	// pre-resolving here relativizes it during SSR and throws (PR #518).
+	const moviesBackHref = $derived(getLibraryDetailBackHref(page.url, '/library/movies'));
 
 	function describeError(error: unknown, fallback: string): string {
 		return error instanceof Error ? error.message : fallback;
@@ -169,7 +185,7 @@
 		prefetchedStreamKey = key;
 
 		apiGetStream(
-			`/api/streaming/session/movie/${movie.tmdbId}/master.m3u8`,
+			`/api/streaming/session/movie/${movie.tmdbId}`,
 			{ prefetch: '1' },
 			{ signal: AbortSignal.timeout(5000), headers: { 'X-Prefetch': 'true' } }
 		).catch(() => {});
@@ -460,6 +476,47 @@
 	import { createSearchProgress } from '$lib/stores/searchProgress.svelte';
 	import { getPrimaryAutoSearchIssue } from '$lib/utils/autoSearchIssues';
 
+	// Per-item subtitle requirement override (details-page editing).
+	let savingRequirements = $state(false);
+	const missingRequirementKeys = $derived(
+		(data.subtitleStatus?.missing ?? []).map((requirement) => requirementKey(requirement))
+	);
+
+	async function handleRequirementsSave(requirements: SubtitleRequirement[] | null) {
+		savingRequirements = true;
+		try {
+			const response = await fetch(`/api/library/movies/${movie.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ subtitleRequirementsOverride: requirements })
+			});
+			if (!response.ok) {
+				const body = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(body.error ?? 'Failed to save subtitle languages');
+			}
+			await invalidateAll();
+		} finally {
+			savingRequirements = false;
+		}
+	}
+
+	async function handleRequirementSearch(requirement: SubtitleRequirement) {
+		try {
+			const response = await fetch('/api/subtitles/auto-search', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ movieId: movie.id, requirement })
+			});
+			if (!response.ok) {
+				const body = (await response.json().catch(() => ({}))) as { error?: string };
+				throw new Error(body.error ?? 'Search failed');
+			}
+			await invalidateAll();
+		} catch (error) {
+			toasts.error(error instanceof Error ? error.message : 'Subtitle search failed');
+		}
+	}
+
 	const searchProgress = createSearchProgress();
 
 	function handleImport() {
@@ -545,6 +602,7 @@
 			movie.minimumAvailability = editData.minimumAvailability;
 			movie.availabilityDelay = editData.availabilityDelay;
 			movie.wantsSubtitles = editData.wantsSubtitles;
+			movie.languageProfileId = editData.languageProfileId;
 			movie.tmdbCollectionId = editData.tmdbCollectionId ?? null;
 			movie.collectionName = editData.collectionName ?? null;
 
@@ -848,6 +906,7 @@
 		{movie}
 		librarySlug={data.librarySlug}
 		libraryName={data.libraryName}
+		backHref={moviesBackHref}
 		tmdbMovie={data.tmdbDetails}
 		defaultRegion={page.data.defaultRegion}
 		configuredProviders={data.configuredMetadataProviders}
@@ -863,6 +922,21 @@
 		{autoSearchResult}
 		{scoreInfo}
 		{scoreLoading}
+		subtitleProgress={subtitleRequirementProgress}
+		preferOriginalTitleDefault={data.preferOriginalTitleDefault}
+	/>
+
+	<!-- Subtitle requirements (per-item override editing) -->
+	<SubtitleRequirementsSection
+		requirements={data.effectiveSubtitleRequirements?.requirements ?? []}
+		missingKeys={missingRequirementKeys}
+		source={data.effectiveSubtitleRequirements?.source ?? null}
+		profileName={data.effectiveLanguageProfile?.profile.name ?? null}
+		audioShortfall={data.movie.languageShortfall ?? false}
+		editable
+		saving={savingRequirements}
+		onSave={handleRequirementsSave}
+		onSearch={handleRequirementSearch}
 	/>
 
 	<!-- Main Content -->
@@ -890,6 +964,7 @@
 				<MovieFilesTab
 					files={movie.files}
 					subtitles={movie.subtitles}
+					subtitleProgress={subtitleRequirementProgress}
 					{isStreamerProfile}
 					onDeleteFile={handleDeleteFile}
 					onSearch={handleSearch}
@@ -903,9 +978,9 @@
 				{@const col = data.collection}
 				<div class="mt-4 hidden rounded-xl bg-base-200 md:mt-6 md:block">
 					<!-- Header -->
-					<div class="flex items-center justify-between p-4 md:p-6 pb-3">
+					<div class="flex items-center justify-between p-4 pb-3 md:p-6">
 						<div class="flex items-center gap-2">
-							<Layers class="h-4 w-4 text-primary shrink-0" />
+							<Layers class="h-4 w-4 shrink-0 text-primary" />
 							<h2 class="text-lg font-semibold">
 								Part of <span class="text-primary">{col.name}</span>
 							</h2>
@@ -913,7 +988,7 @@
 						<div class="flex items-center gap-1">
 							{#if trackedMissingFile.length > 0}
 								<button
-									class="btn btn-ghost btn-sm gap-2"
+									class="btn gap-2 btn-ghost btn-sm"
 									onclick={handleCollectionSearch}
 									disabled={collectionSearching}
 									title="Search for missing movies in this collection"
@@ -927,7 +1002,7 @@
 							{/if}
 							{#if trackedMissingSubtitles.length > 0}
 								<button
-									class="btn btn-ghost btn-sm gap-2"
+									class="btn gap-2 btn-ghost btn-sm"
 									onclick={handleCollectionSubtitleAutoSearch}
 									disabled={collectionSubtitleAutoSearching}
 									title="Auto-download missing subtitles for movies in this collection"
@@ -943,7 +1018,7 @@
 					</div>
 
 					<!-- Parts grid -->
-					<div class="px-4 md:px-6 pb-4">
+					<div class="px-4 pb-4 md:px-6">
 						<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8">
 							{#each collectionParts as part (part.tmdbId)}
 								{#if part.inLibrary && part.movieId}
@@ -1049,7 +1124,7 @@
 
 					<!-- Bottom panel: per-movie add or track-all -->
 					{#if addingPart || missingParts.length > 0}
-						<div class="border-t border-base-300 px-4 md:px-6 py-4">
+						<div class="border-t border-base-300 px-4 py-4 md:px-6">
 							{#if addingPart}
 								<!-- Per-movie add panel -->
 								<div class="space-y-4">
@@ -1079,15 +1154,15 @@
 													<opt.Icon class="h-4 w-4" />
 												</div>
 												<div class="min-w-0">
-													<p class="text-sm font-semibold leading-tight">{opt.label}</p>
-													<p class="mt-0.5 text-xs text-base-content/55 leading-snug">{opt.desc}</p>
+													<p class="text-sm leading-tight font-semibold">{opt.label}</p>
+													<p class="mt-0.5 text-xs leading-snug text-base-content/55">{opt.desc}</p>
 												</div>
 											</button>
 										{/each}
 									</div>
 									<div class="flex gap-2">
 										<button
-											class="btn btn-primary btn-sm gap-2"
+											class="btn gap-2 btn-primary btn-sm"
 											onclick={handleAddPart}
 											disabled={addingPartLoading}
 										>
@@ -1103,12 +1178,12 @@
 								</div>
 							{:else if !trackPanelOpen}
 								<button
-									class="btn btn-primary btn-sm gap-2"
+									class="btn gap-2 btn-primary btn-sm"
 									onclick={() => (trackPanelOpen = true)}
 								>
 									<Plus class="h-4 w-4" />
 									Add collection
-									<span class="badge badge-primary-content badge-sm"
+									<span class="badge-primary-content badge badge-sm"
 										>{missingParts.length} missing</span
 									>
 								</button>
@@ -1138,8 +1213,8 @@
 													<opt.Icon class="h-4 w-4" />
 												</div>
 												<div class="min-w-0">
-													<p class="text-sm font-semibold leading-tight">{opt.label}</p>
-													<p class="mt-0.5 text-xs text-base-content/55 leading-snug">{opt.desc}</p>
+													<p class="text-sm leading-tight font-semibold">{opt.label}</p>
+													<p class="mt-0.5 text-xs leading-snug text-base-content/55">{opt.desc}</p>
 												</div>
 											</button>
 										{/each}
@@ -1147,7 +1222,7 @@
 
 									<div class="flex gap-2">
 										<button
-											class="btn btn-primary btn-sm gap-2"
+											class="btn gap-2 btn-primary btn-sm"
 											onclick={handleTrackCollection}
 											disabled={tracking}
 										>
@@ -1259,16 +1334,16 @@
 				{@const col = data.collection}
 				<div class="rounded-xl bg-base-200 md:hidden">
 					<div class="flex items-center justify-between p-4 pb-3">
-						<div class="flex items-center gap-2 min-w-0">
-							<Layers class="h-4 w-4 text-primary shrink-0" />
-							<h2 class="text-base font-semibold truncate">
+						<div class="flex min-w-0 items-center gap-2">
+							<Layers class="h-4 w-4 shrink-0 text-primary" />
+							<h2 class="truncate text-base font-semibold">
 								Part of <span class="text-primary">{col.name}</span>
 							</h2>
 						</div>
-						<div class="flex items-center gap-1 shrink-0">
+						<div class="flex shrink-0 items-center gap-1">
 							{#if trackedMissingFile.length > 0}
 								<button
-									class="btn btn-ghost btn-sm gap-2"
+									class="btn gap-2 btn-ghost btn-sm"
 									onclick={handleCollectionSearch}
 									disabled={collectionSearching}
 									title="Search for missing movies in this collection"
@@ -1282,7 +1357,7 @@
 							{/if}
 							{#if trackedMissingSubtitles.length > 0}
 								<button
-									class="btn btn-ghost btn-sm gap-2"
+									class="btn gap-2 btn-ghost btn-sm"
 									onclick={handleCollectionSubtitleAutoSearch}
 									disabled={collectionSubtitleAutoSearching}
 									title="Auto-download missing subtitles for movies in this collection"
@@ -1427,15 +1502,15 @@
 													<opt.Icon class="h-4 w-4" />
 												</div>
 												<div class="min-w-0">
-													<p class="text-sm font-semibold leading-tight">{opt.label}</p>
-													<p class="mt-0.5 text-xs text-base-content/55 leading-snug">{opt.desc}</p>
+													<p class="text-sm leading-tight font-semibold">{opt.label}</p>
+													<p class="mt-0.5 text-xs leading-snug text-base-content/55">{opt.desc}</p>
 												</div>
 											</button>
 										{/each}
 									</div>
 									<div class="flex gap-2">
 										<button
-											class="btn btn-primary btn-sm flex-1 gap-2"
+											class="btn flex-1 gap-2 btn-primary btn-sm"
 											onclick={handleAddPart}
 											disabled={addingPartLoading}
 										>
@@ -1451,12 +1526,12 @@
 								</div>
 							{:else if !trackPanelOpen}
 								<button
-									class="btn btn-primary btn-sm w-full gap-2"
+									class="btn w-full gap-2 btn-primary btn-sm"
 									onclick={() => (trackPanelOpen = true)}
 								>
 									<Plus class="h-4 w-4" />
 									Add collection
-									<span class="badge badge-primary-content badge-sm"
+									<span class="badge-primary-content badge badge-sm"
 										>{missingParts.length} missing</span
 									>
 								</button>
@@ -1485,15 +1560,15 @@
 													<opt.Icon class="h-4 w-4" />
 												</div>
 												<div class="min-w-0">
-													<p class="text-sm font-semibold leading-tight">{opt.label}</p>
-													<p class="mt-0.5 text-xs text-base-content/55 leading-snug">{opt.desc}</p>
+													<p class="text-sm leading-tight font-semibold">{opt.label}</p>
+													<p class="mt-0.5 text-xs leading-snug text-base-content/55">{opt.desc}</p>
 												</div>
 											</button>
 										{/each}
 									</div>
 									<div class="flex gap-2">
 										<button
-											class="btn btn-primary btn-sm flex-1 gap-2"
+											class="btn flex-1 gap-2 btn-primary btn-sm"
 											onclick={handleTrackCollection}
 											disabled={tracking}
 										>
@@ -1522,6 +1597,8 @@
 	{movie}
 	qualityProfiles={data.qualityProfiles}
 	delayProfiles={data.delayProfiles}
+	languageProfiles={data.languageProfiles}
+	effectiveLanguageProfile={data.effectiveLanguageProfile}
 	rootFolders={data.rootFolders}
 	saving={isSaving}
 	onClose={handleEditClose}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ALL_LANGUAGE_OPTIONS } from '$lib/shared/languages';
 	import * as m from '$lib/paraglide/messages.js';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { FormatCondition, ConditionType } from '$lib/types/format';
@@ -33,6 +34,8 @@
 
 	let { conditions, readonly = false, onUpdate }: Props = $props();
 
+	const LANGUAGE_OPTIONS = ALL_LANGUAGE_OPTIONS;
+
 	// Condition types available for selection
 	const conditionTypes: ConditionType[] = [
 		'resolution',
@@ -45,6 +48,7 @@
 		'streaming_service',
 		'flag',
 		'indexer',
+		'language',
 		'release_title',
 		'release_group'
 	];
@@ -83,6 +87,7 @@
 			delete condition.streamingService;
 			delete condition.flag;
 			delete condition.indexer;
+			delete condition.language;
 
 			// Set default for the new type
 			switch (updates.type) {
@@ -118,6 +123,9 @@
 					break;
 				case 'indexer':
 					condition.indexer = '';
+					break;
+				case 'language':
+					condition.language = 'en';
 					break;
 			}
 		}
@@ -172,7 +180,7 @@
 						<!-- Condition Name -->
 						<input
 							type="text"
-							class="input-bordered input input-sm flex-1"
+							class="input-bordered input flex-1 input-sm"
 							value={condition.name}
 							disabled={readonly}
 							placeholder={m.formats_conditionNamePlaceholder()}
@@ -181,7 +189,7 @@
 						{#if !readonly}
 							<button
 								type="button"
-								class="btn text-error btn-ghost btn-sm"
+								class="btn btn-ghost text-error btn-sm"
 								onclick={() => removeCondition(index)}
 								aria-label={m.formats_conditionRemoveAria()}
 							>
@@ -354,7 +362,7 @@
 									<input
 										id="condition-value-{index}"
 										type="text"
-										class="input-bordered input input-sm w-full font-mono"
+										class="input-bordered input w-full font-mono input-sm"
 										class:input-error={regexErrors.has(index)}
 										value={condition.pattern ?? ''}
 										disabled={readonly}
@@ -372,11 +380,25 @@
 										</div>
 									{/if}
 								</div>
+							{:else if condition.type === 'language'}
+								<select
+									id="condition-value-{index}"
+									class="select-bordered select select-sm"
+									value={condition.language}
+									disabled={readonly}
+									onchange={(e) => updateCondition(index, { language: e.currentTarget.value })}
+								>
+									<option value="multi">{m.formats_languageOptionMulti()}</option>
+									<option value="orig">{m.formats_languageOptionOriginal()}</option>
+									{#each LANGUAGE_OPTIONS as lang (lang.code)}
+										<option value={lang.code}>{lang.name} ({lang.code})</option>
+									{/each}
+								</select>
 							{:else if condition.type === 'indexer'}
 								<input
 									id="condition-value-{index}"
 									type="text"
-									class="input-bordered input input-sm w-full"
+									class="input-bordered input w-full input-sm"
 									value={condition.indexer ?? ''}
 									disabled={readonly}
 									placeholder="Indexer name"
@@ -391,7 +413,7 @@
 						<label class="flex cursor-pointer items-center gap-2">
 							<input
 								type="checkbox"
-								class="checkbox checkbox-sm"
+								class="checkbox checkbox-sm checkbox-primary"
 								checked={condition.required}
 								disabled={readonly}
 								onchange={(e) => updateCondition(index, { required: e.currentTarget.checked })}
@@ -405,7 +427,7 @@
 						<label class="flex cursor-pointer items-center gap-2">
 							<input
 								type="checkbox"
-								class="checkbox checkbox-sm"
+								class="checkbox checkbox-sm checkbox-primary"
 								checked={condition.negate}
 								disabled={readonly}
 								onchange={(e) => updateCondition(index, { negate: e.currentTarget.checked })}

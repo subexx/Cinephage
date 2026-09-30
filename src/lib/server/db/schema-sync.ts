@@ -135,8 +135,27 @@ import {
  * Version 124: Add movie_file_id to subtitles for per-file subtitle association
  * Version 125: Add api_token and remove_after_import columns to download_clients (debrid support)
  * Version 126: Add metadata_language and prefer_original_title columns to movies and series tables
+ * Version 127: Add cinephage_api_config identity auto-sync columns (latest_version, latest_commit, auto_update)
+ * Version 132: Add qBittorrent sequential download setting to download_clients
+ * Version 133: Add import_failed and backfill canonical info hashes on download queue rows
+ * Version 134: Store canonical info hashes on download history rows
+ * Version 135: Deduplicate active download queue rows by client and info hash
+ * Version 136: Add storage_items indexes on episode_file_id and movie_file_id
+ * Version 137: Add allow_movies and allow_tv columns to download_clients for debrid content-type restriction
+ * Version 138: Add arr_id_mappings table for the Radarr/Sonarr-compatible API layer's surrogate integer IDs
+ * Version 139: Add arr_notification_configs table for arr-compat clients (Pulsarr, etc.) registering webhooks
+ * Version 140: Language system reset - v2 language profiles, language_settings singleton, metadata mode/value columns
+ * Version 141: Subtitle reconciliation/backoff - subtitles.last_checked_at, subtitle_search_state table, episode path-base rewrite
+ * Version 142: Allow AniList/MAL title variants in alternate_titles (source CHECK extended, table rebuilt)
+ * Version 143: Media-server stats language normalization - raw language provenance columns + canonicalized arrays on media_server_synced_items; epg_programs title_i18n/description_i18n/category_i18n JSON columns
+ * Version 144: Add language_settings.prefer_original_title instance default (boolean, default 0)
+ * Version 145: Drop deprecated per-item adaptive subtitle columns (movies/episodes failed_subtitle_attempts, first_subtitle_search_at)
+ * Version 146: Per-item subtitle requirement overrides on movies/series/episodes + inheritance repair
+ * Version 148: Acquisition intents + reservations — durable acquisition authority and slot exclusivity
+ * Version 149: Import operations journal — durable multi-step import record for recovery and reports
+ * Version 150: movie_files (movie_id, relative_path) unique index (legacy duplicates deduped)
  */
-export const CURRENT_SCHEMA_VERSION = 126;
+export const CURRENT_SCHEMA_VERSION = 152;
 
 export const SYSTEM_LIBRARY_SEEDS = [
 	{
@@ -275,6 +294,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"initial_state" text DEFAULT 'start',
 		"seed_ratio_limit" text,
 		"seed_time_limit" integer,
+		"sequential_download" integer DEFAULT 0,
 		"download_path_local" text,
 		"download_path_remote" text,
 		"temp_path_local" text,
@@ -319,6 +339,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"default_monitored" integer DEFAULT true NOT NULL,
 		"default_search_on_add" integer DEFAULT true NOT NULL,
 		"default_wants_subtitles" integer DEFAULT true NOT NULL,
+		"language_profile_id" text,
 		"sort_order" integer DEFAULT 0 NOT NULL,
 		"created_at" text,
 		"updated_at" text
@@ -335,12 +356,27 @@ const TABLE_DEFINITIONS: string[] = [
 	`CREATE TABLE IF NOT EXISTS "language_profiles" (
 		"id" text PRIMARY KEY NOT NULL,
 		"name" text NOT NULL,
-		"languages" text NOT NULL,
-		"cutoff_index" integer DEFAULT 0,
+		"audio" text NOT NULL,
+		"subtitles" text NOT NULL,
+		"cutoff_rank" integer,
+		"minimum_score" integer DEFAULT 70 NOT NULL,
 		"upgrades_allowed" integer DEFAULT true,
-		"minimum_score" integer DEFAULT 60,
-		"is_default" integer DEFAULT false,
 		"created_at" text,
+		"updated_at" text
+	)`,
+
+	// Language Settings - singleton row (id = 'singleton'); default_profile_id is
+	// the only default-profile authority (no is_default on language_profiles)
+	`CREATE TABLE IF NOT EXISTS "language_settings" (
+		"id" text PRIMARY KEY NOT NULL DEFAULT 'singleton',
+		"default_profile_id" text,
+		"metadata_locale" text DEFAULT 'en-US' NOT NULL,
+		"region" text DEFAULT 'US' NOT NULL,
+		"discover_original_filter" text,
+		"unknown_subtitle_policy" text DEFAULT 'und' NOT NULL,
+		"assumed_language" text,
+		"auto_sync_subtitles" integer DEFAULT true NOT NULL,
+		"prefer_original_title" integer DEFAULT 0 NOT NULL,
 		"updated_at" text
 	)`,
 
@@ -438,11 +474,6 @@ const TABLE_DEFINITIONS: string[] = [
 		"value" text NOT NULL
 	)`,
 
-	`CREATE TABLE IF NOT EXISTS "subtitle_settings" (
-		"key" text PRIMARY KEY NOT NULL,
-		"value" text NOT NULL
-	)`,
-
 	`CREATE TABLE IF NOT EXISTS "task_history" (
 		"id" text PRIMARY KEY NOT NULL,
 		"task_id" text NOT NULL,
@@ -472,6 +503,9 @@ const TABLE_DEFINITIONS: string[] = [
 		"base_url" text NOT NULL DEFAULT 'https://api.cinephage.net',
 		"version_override" text,
 		"commit_override" text,
+		"auto_update" integer DEFAULT 1 NOT NULL,
+		"latest_version" text,
+		"latest_commit" text,
 		"updated_at" text
 	)`,
 
@@ -540,14 +574,13 @@ const TABLE_DEFINITIONS: string[] = [
 		"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
 		"desired_qualities" text,
 		"language_profile_id" text,
+		"subtitle_requirements_override" text,
 		"monitored" integer DEFAULT true,
 		"minimum_availability" text DEFAULT 'released',
 		"added" text,
 		"has_file" integer DEFAULT false,
 		"wants_subtitles" integer DEFAULT true,
 		"last_search_time" text,
-		"failed_subtitle_attempts" integer DEFAULT 0,
-		"first_subtitle_search_at" text,
 		"tmdb_collection_id" integer,
 		"collection_name" text,
 		"release_date" text,
@@ -557,6 +590,9 @@ const TABLE_DEFINITIONS: string[] = [
 		"physical_release_date" text,
 		"availability_delay" integer NOT NULL DEFAULT 0,
 		"metadata_language" text,
+		"original_language" text,
+		"metadata_language_mode" text DEFAULT 'inherit' NOT NULL,
+		"metadata_language_value" text,
 		"prefer_original_title" integer DEFAULT 0
 	)`,
 
@@ -595,6 +631,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"root_folder_id" text REFERENCES "root_folders"("id") ON DELETE SET NULL,
 		"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
 		"language_profile_id" text,
+		"subtitle_requirements_override" text,
 		"monitored" integer DEFAULT true,
 		"monitor_new_items" text DEFAULT 'all',
 		"monitor_specials" integer DEFAULT false,
@@ -607,6 +644,9 @@ const TABLE_DEFINITIONS: string[] = [
 		"first_air_date" text,
 		"episode_group_id" text,
 		"metadata_language" text,
+		"original_language" text,
+		"metadata_language_mode" text DEFAULT 'inherit' NOT NULL,
+		"metadata_language_value" text,
 		"prefer_original_title" integer DEFAULT 0
 	)`,
 
@@ -639,8 +679,9 @@ const TABLE_DEFINITIONS: string[] = [
 		"monitored" integer DEFAULT true,
 		"has_file" integer DEFAULT false,
 		"wants_subtitles_override" integer,
+		"subtitle_requirements_override" text,
 		"last_search_time" text
-	)`,
+)`,
 
 	`CREATE TABLE IF NOT EXISTS "episode_files" (
 		"id" text PRIMARY KEY NOT NULL,
@@ -667,7 +708,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"media_id" text NOT NULL,
 		"title" text NOT NULL,
 		"clean_title" text NOT NULL,
-		"source" text NOT NULL CHECK ("source" IN ('tmdb', 'user')),
+		"source" text NOT NULL CHECK ("source" IN ('tmdb', 'user', 'anilist', 'mal')),
 		"language" text,
 		"country" text,
 		"created_at" text
@@ -686,7 +727,9 @@ const TABLE_DEFINITIONS: string[] = [
 		"suggested_matches" text,
 		"reason" text,
 		"discovered_at" text,
-		"last_seen_scan_id" text
+		"last_seen_scan_id" text,
+		"correlation_id" text,
+		"ambiguity_margin" real
 	)`,
 
 	`CREATE TABLE IF NOT EXISTS "library_scan_history" (
@@ -778,7 +821,8 @@ const TABLE_DEFINITIONS: string[] = [
 		"import_attempts" integer DEFAULT 0,
 		"last_attempt_at" text,
 		"is_automatic" integer DEFAULT false,
-		"is_upgrade" integer DEFAULT false
+		"is_upgrade" integer DEFAULT false,
+		"import_failed" integer NOT NULL DEFAULT 0
 	)`,
 
 	`CREATE TABLE IF NOT EXISTS "download_queue_tombstones" (
@@ -793,11 +837,67 @@ const TABLE_DEFINITIONS: string[] = [
 		"updated_at" text
 	)`,
 
+	// Acquisition Intents + Reservations (v148) — durable acquisition
+	// authority and per-slot exclusivity. See schema.ts docs.
+	`CREATE TABLE IF NOT EXISTS "acquisition_intents" (
+		"id" text PRIMARY KEY NOT NULL,
+		"media_type" text NOT NULL,
+		"movie_id" text REFERENCES "movies"("id") ON DELETE SET NULL,
+		"series_id" text REFERENCES "series"("id") ON DELETE SET NULL,
+		"season_number" integer,
+		"episode_ids" text,
+		"quality_slot" text NOT NULL,
+		"protocol" text NOT NULL,
+		"identity_kind" text,
+		"identity_value" text,
+		"release_title" text NOT NULL,
+		"indexer_id" text,
+		"indexer_name" text,
+		"upgrade_status" text,
+		"decision" text,
+		"source" text NOT NULL,
+		"status" text DEFAULT 'active' NOT NULL,
+		"queue_id" text,
+		"error" text,
+		"created_at" text NOT NULL,
+		"updated_at" text NOT NULL,
+		"completed_at" text
+	)`,
+
+	`CREATE TABLE IF NOT EXISTS "acquisition_reservations" (
+		"id" text PRIMARY KEY NOT NULL,
+		"intent_id" text NOT NULL REFERENCES "acquisition_intents"("id") ON DELETE CASCADE,
+		"target_key" text NOT NULL,
+		"created_at" text NOT NULL,
+		"released_at" text
+	)`,
+
+	`CREATE TABLE IF NOT EXISTS "import_operations" (
+		"id" text PRIMARY KEY NOT NULL,
+		"intent_id" text REFERENCES "acquisition_intents"("id") ON DELETE SET NULL,
+		"queue_id" text,
+		"media_type" text NOT NULL,
+		"movie_id" text,
+		"series_id" text,
+		"episode_ids" text,
+		"protocol" text,
+		"destination_path" text NOT NULL,
+		"new_file_id" text,
+		"pending_old_file_ids" text,
+		"failed_old_file_ids" text,
+		"status" text DEFAULT 'staged' NOT NULL,
+		"error" text,
+		"created_at" text NOT NULL,
+		"updated_at" text NOT NULL,
+		"completed_at" text
+	)`,
+
 	`CREATE TABLE IF NOT EXISTS "download_history" (
 		"id" text PRIMARY KEY NOT NULL,
 		"download_client_id" text,
 		"download_client_name" text,
 		"download_id" text,
+		"info_hash" text,
 		"title" text NOT NULL,
 		"indexer_id" text,
 		"indexer_name" text,
@@ -907,7 +1007,22 @@ const TABLE_DEFINITIONS: string[] = [
 		"size" integer,
 		"sync_offset" integer DEFAULT 0,
 		"was_synced" integer DEFAULT false,
-		"date_added" text
+		"last_checked_at" text,
+		"date_added" text,
+		CHECK ((movie_id IS NOT NULL AND episode_id IS NULL) OR (movie_id IS NULL AND episode_id IS NOT NULL))
+	)`,
+
+	// Subtitle Search State - per-requirement adaptive backoff (m141). One row per
+	// (owner, requirement_key) so a failure on one requirement does not gate the
+	// others. requirement_key is the stable `tag|variant|accessibility` tuple.
+	`CREATE TABLE IF NOT EXISTS "subtitle_search_state" (
+		"owner_type" text NOT NULL,
+		"owner_id" text NOT NULL,
+		"requirement_key" text NOT NULL,
+		"failed_attempts" integer NOT NULL DEFAULT 0,
+		"first_search_at" text,
+		"last_search_at" text,
+		PRIMARY KEY ("owner_type", "owner_id", "requirement_key")
 	)`,
 
 	`CREATE TABLE IF NOT EXISTS "subtitle_history" (
@@ -1142,6 +1257,8 @@ const TABLE_DEFINITIONS: string[] = [
 		"audio_bitrate" integer,
 		"audio_languages" text DEFAULT '[]',
 		"subtitle_languages" text DEFAULT '[]',
+		"audio_languages_raw" text,
+		"subtitle_languages_raw" text,
 		"container_format" text,
 		"file_size" integer,
 		"bitrate" integer,
@@ -1313,6 +1430,9 @@ const TABLE_DEFINITIONS: string[] = [
 		"title" text NOT NULL,
 		"description" text,
 		"category" text,
+		"title_i18n" text,
+		"description_i18n" text,
+		"category_i18n" text,
 		"director" text,
 		"actor" text,
 		"start_time" text NOT NULL,
@@ -1401,6 +1521,73 @@ const TABLE_DEFINITIONS: string[] = [
 		"error" text,
 		"operation" text NOT NULL DEFAULT 'rename',
 		"created_at" text NOT NULL
+	)`,
+
+	// =========================================================================
+	// Diagnostic Report Tables
+	// =========================================================================
+
+	`CREATE TABLE IF NOT EXISTS "rejected_releases" (
+		"id" text PRIMARY KEY NOT NULL,
+		"correlation_id" text,
+		"release_title" text NOT NULL,
+		"indexer_name" text,
+		"protocol" text,
+		"tmdb_id" integer,
+		"media_type" text,
+		"media_title" text,
+		"rejection_reasons" text,
+		"quality_profile_name" text,
+		"release_size" integer,
+		"release_group" text,
+		"rejected_at" text NOT NULL,
+		"status" text NOT NULL DEFAULT 'rejected'
+	)`,
+
+	`CREATE TABLE IF NOT EXISTS "import_failures" (
+		"id" text PRIMARY KEY NOT NULL,
+		"correlation_id" text,
+		"release_title" text NOT NULL,
+		"source_path" text,
+		"destination_path" text,
+		"failure_stage" text NOT NULL,
+		"reason" text NOT NULL,
+		"reason_detail" text,
+		"dangerous_files" text,
+		"attempt_count" integer NOT NULL DEFAULT 1,
+		"download_client_id" text,
+		"failed_at" text NOT NULL,
+		"status" text NOT NULL DEFAULT 'failed',
+		"resolved_at" text
+	)`,
+
+	`CREATE TABLE IF NOT EXISTS "renaming_failures" (
+		"id" text PRIMARY KEY NOT NULL,
+		"correlation_id" text,
+		"file_id" text NOT NULL,
+		"file_type" text NOT NULL,
+		"source_path" text NOT NULL,
+		"intended_path" text NOT NULL,
+		"naming_template" text,
+		"reason" text NOT NULL,
+		"reason_detail" text,
+		"failed_at" text NOT NULL,
+		"status" text NOT NULL DEFAULT 'failed',
+		"resolved_at" text
+	)`,
+
+	`CREATE TABLE IF NOT EXISTS "metadata_conflicts" (
+		"id" text PRIMARY KEY NOT NULL,
+		"correlation_id" text,
+		"tmdb_id" integer NOT NULL,
+		"media_type" text NOT NULL,
+		"media_title" text,
+		"conflict_type" text NOT NULL,
+		"providers_checked" text,
+		"provider_results" text,
+		"detected_at" text NOT NULL,
+		"status" text NOT NULL DEFAULT 'unresolved',
+		"resolved_at" text
 	)`
 ];
 
@@ -1442,11 +1629,24 @@ const INDEX_DEFINITIONS: string[] = [
 	`CREATE INDEX IF NOT EXISTS "idx_library_job_items_job_status" ON "library_job_items" ("job_id", "status")`,
 	`CREATE INDEX IF NOT EXISTS "idx_library_job_items_path" ON "library_job_items" ("path")`,
 	`CREATE INDEX IF NOT EXISTS "idx_download_queue_status" ON "download_queue" ("status")`,
+	`CREATE INDEX IF NOT EXISTS "idx_download_queue_info_hash" ON "download_queue" ("info_hash")`,
 	`CREATE INDEX IF NOT EXISTS "idx_download_queue_movie" ON "download_queue" ("movie_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_download_queue_series" ON "download_queue" ("series_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_download_queue_tombstones_client" ON "download_queue_tombstones" ("download_client_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_download_queue_tombstones_suppressed_until" ON "download_queue_tombstones" ("suppressed_until")`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS "idx_download_queue_tombstones_unique" ON "download_queue_tombstones" ("download_client_id", "protocol", "remote_id")`,
+	`CREATE INDEX IF NOT EXISTS "idx_acq_intents_status" ON "acquisition_intents" ("status")`,
+	`CREATE INDEX IF NOT EXISTS "idx_acq_intents_queue" ON "acquisition_intents" ("queue_id")`,
+	`CREATE INDEX IF NOT EXISTS "idx_acq_intents_movie" ON "acquisition_intents" ("movie_id")`,
+	`CREATE INDEX IF NOT EXISTS "idx_acq_intents_series" ON "acquisition_intents" ("series_id")`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS "idx_acq_intents_active_identity" ON "acquisition_intents" ("identity_value") WHERE "identity_value" IS NOT NULL AND "status" = 'active'`,
+	`CREATE INDEX IF NOT EXISTS "idx_acq_reservations_intent" ON "acquisition_reservations" ("intent_id")`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS "idx_acq_reservations_active_target" ON "acquisition_reservations" ("target_key") WHERE "released_at" IS NULL`,
+	`CREATE INDEX IF NOT EXISTS "idx_import_operations_status" ON "import_operations" ("status")`,
+	`CREATE INDEX IF NOT EXISTS "idx_import_operations_queue" ON "import_operations" ("queue_id")`,
+	// NOTE: idx_movie_files_movie_path_unique is created ONLY by migration
+	// v150 (dedupe first). Creating it here would fail on legacy DBs with
+	// duplicate rows, because INDEX_DEFINITIONS run before migrations.
 	`CREATE INDEX IF NOT EXISTS "idx_blocklist_movie" ON "blocklist" ("movie_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_blocklist_series" ON "blocklist" ("series_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_blocklist_infohash" ON "blocklist" ("info_hash")`,
@@ -1459,6 +1659,8 @@ const INDEX_DEFINITIONS: string[] = [
 	`CREATE INDEX IF NOT EXISTS "idx_subtitles_movie" ON "subtitles" ("movie_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_subtitles_episode" ON "subtitles" ("episode_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_subtitles_movie_file" ON "subtitles" ("movie_file_id")`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS "idx_subtitles_unique_identity" ON "subtitles" (ifnull("movie_id", ''), ifnull("episode_id", ''), "language", "is_forced", "is_hearing_impaired", "relative_path")`,
+	`CREATE INDEX IF NOT EXISTS "idx_subtitle_search_state_owner" ON "subtitle_search_state" ("owner_type", "owner_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_smart_lists_enabled" ON "smart_lists" ("enabled")`,
 	`CREATE INDEX IF NOT EXISTS "idx_smart_lists_next_refresh" ON "smart_lists" ("next_refresh_time")`,
 	`CREATE INDEX IF NOT EXISTS "idx_smart_lists_media_type" ON "smart_lists" ("media_type")`,
@@ -1525,6 +1727,7 @@ const INDEX_DEFINITIONS: string[] = [
 	`CREATE INDEX IF NOT EXISTS "idx_alternate_titles_source" ON "alternate_titles" ("source")`,
 
 	// download_history indexes for activity query performance
+	`CREATE INDEX IF NOT EXISTS "idx_download_history_info_hash" ON "download_history" ("info_hash")`,
 	`CREATE INDEX IF NOT EXISTS "idx_dh_status" ON "download_history" ("status")`,
 	`CREATE INDEX IF NOT EXISTS "idx_dh_movie" ON "download_history" ("movie_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_dh_series" ON "download_history" ("series_id")`,
@@ -1540,7 +1743,20 @@ const INDEX_DEFINITIONS: string[] = [
 	`CREATE INDEX IF NOT EXISTS "idx_synced_items_item_type" ON "media_server_synced_items" ("item_type")`,
 	// Rename history audit indexes
 	`CREATE INDEX IF NOT EXISTS "idx_rename_history_file" ON "rename_history" ("file_id")`,
-	`CREATE INDEX IF NOT EXISTS "idx_rename_history_created" ON "rename_history" ("created_at")`
+	`CREATE INDEX IF NOT EXISTS "idx_rename_history_created" ON "rename_history" ("created_at")`,
+	// Diagnostic report table indexes
+	`CREATE INDEX IF NOT EXISTS "idx_rejected_releases_rejected_at" ON "rejected_releases" ("rejected_at")`,
+	`CREATE INDEX IF NOT EXISTS "idx_rejected_releases_tmdb" ON "rejected_releases" ("tmdb_id", "media_type")`,
+	`CREATE INDEX IF NOT EXISTS "idx_rejected_releases_status" ON "rejected_releases" ("status")`,
+	`CREATE INDEX IF NOT EXISTS "idx_import_failures_failed_at" ON "import_failures" ("failed_at")`,
+	`CREATE INDEX IF NOT EXISTS "idx_import_failures_status" ON "import_failures" ("status")`,
+	`CREATE INDEX IF NOT EXISTS "idx_import_failures_stage" ON "import_failures" ("failure_stage")`,
+	`CREATE INDEX IF NOT EXISTS "idx_renaming_failures_failed_at" ON "renaming_failures" ("failed_at")`,
+	`CREATE INDEX IF NOT EXISTS "idx_renaming_failures_file" ON "renaming_failures" ("file_id", "file_type")`,
+	`CREATE INDEX IF NOT EXISTS "idx_renaming_failures_status" ON "renaming_failures" ("status")`,
+	`CREATE INDEX IF NOT EXISTS "idx_metadata_conflicts_tmdb" ON "metadata_conflicts" ("tmdb_id", "media_type")`,
+	`CREATE INDEX IF NOT EXISTS "idx_metadata_conflicts_detected_at" ON "metadata_conflicts" ("detected_at")`,
+	`CREATE INDEX IF NOT EXISTS "idx_metadata_conflicts_status" ON "metadata_conflicts" ("status")`
 ];
 
 /**

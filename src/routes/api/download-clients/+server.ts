@@ -44,7 +44,9 @@ export const POST: RequestHandler = async (event) => {
 		enabled: validated.enabled,
 		priority: validated.priority,
 		apiToken: validated.apiToken,
-		removeAfterImport: validated.removeAfterImport
+		removeAfterImport: validated.removeAfterImport,
+		allowMovies: validated.allowMovies,
+		allowTv: validated.allowTv
 	};
 
 	let input: DownloadClientInput;
@@ -65,6 +67,7 @@ export const POST: RequestHandler = async (event) => {
 			initialState: validated.initialState,
 			seedRatioLimit: validated.seedRatioLimit,
 			seedTimeLimit: validated.seedTimeLimit,
+			sequentialDownload: validated.sequentialDownload,
 			downloadPathLocal: validated.downloadPathLocal,
 			downloadPathRemote: validated.downloadPathRemote,
 			tempPathLocal: validated.tempPathLocal,

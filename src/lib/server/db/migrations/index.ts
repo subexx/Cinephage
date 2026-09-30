@@ -123,6 +123,32 @@ import { migration_v123 } from './123-add-movies-desired-qualities.js';
 import { migration_v124 } from './124-add-subtitles-movie-file-id.js';
 import { migration_v125 } from './125-add-debrid-client-columns.js';
 import { migration_v126 } from './126-add-metadata-language-overrides.js';
+import { migration_v127 } from './127-add-cinephage-api-identity-auto-sync.js';
+import { migration_v128 } from './128-add-diagnostic-report-tables.js';
+import { migration_v129 } from './129-add-rejected-releases-reason-columns.js';
+import { migration_v130 } from './130-add-rejected-releases-grab-fields.js';
+import { migration_v131 } from './131-purge-orphaned-unmatched-files.js';
+import { migration_v132 } from './132-add-qbittorrent-sequential-download.js';
+import { migration_v133 } from './133-backfill-download-queue-info-hashes.js';
+import { migration_v134 } from './134-add-download-history-info-hash.js';
+import { migration_v135 } from './135-dedupe-active-download-queue.js';
+import { migration_v136 } from './136-add-storage-items-file-id-indexes.js';
+import { migration_v137 } from './137-add-debrid-content-type-columns.js';
+import { migration_v138 } from './138-add-arr-id-mappings.js';
+import { migration_v139 } from './139-add-arr-notification-configs.js';
+import { migration_v140 } from './140-language-system-reset.js';
+import { migration_v141 } from './141-subtitle-search-state-and-episode-path-base.js';
+import { migration_v142 } from './142-allow-anilist-mal-alternate-title-sources.js';
+import { migration_v143 } from './143-media-server-language-normalization.js';
+import { migration_v144 } from './144-language-settings-prefer-original-title.js';
+import { migration_v145 } from './145-drop-deprecated-adaptive-subtitle-columns.js';
+import { migration_v146 } from './146-subtitle-requirement-overrides.js';
+import { migration_v147 } from './147-language-shortfall-flag.js';
+import { migration_v148 } from './148-acquisition-intents-reservations.js';
+import { migration_v149 } from './149-import-operations-journal.js';
+import { migration_v150 } from './150-movie-files-path-unique.js';
+import { migration_v151 } from './151-language-system-column-guards.js';
+import { migration_v152 } from './152-drop-subtitle-settings.js';
 
 export const MIGRATIONS: MigrationDefinition[] = [
 	migration_v002,
@@ -248,5 +274,31 @@ export const MIGRATIONS: MigrationDefinition[] = [
 	migration_v123,
 	migration_v124,
 	migration_v125,
-	migration_v126
+	migration_v126,
+	migration_v127,
+	migration_v128,
+	migration_v129,
+	migration_v130,
+	migration_v131,
+	migration_v132,
+	migration_v133,
+	migration_v134,
+	migration_v135,
+	migration_v136,
+	migration_v137,
+	migration_v138,
+	migration_v139,
+	migration_v140,
+	migration_v141,
+	migration_v142,
+	migration_v143,
+	migration_v144,
+	migration_v145,
+	migration_v146,
+	migration_v147,
+	migration_v148,
+	migration_v149,
+	migration_v150,
+	migration_v151,
+	migration_v152
 ];

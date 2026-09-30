@@ -160,8 +160,7 @@ export class LiveTvStreamService implements BackgroundService {
 		for (let i = 0; i < fallbackRows.length; i++) {
 			const row = fallbackRows[i];
 			const stalkerData = (row.stalkerData ?? undefined) as
-				| import('$lib/types/livetv').StalkerChannelData
-				| undefined;
+				import('$lib/types/livetv').StalkerChannelData | undefined;
 			sources.push({
 				accountId: row.accountId,
 				channelId: row.id,
@@ -340,8 +339,16 @@ export class LiveTvStreamService implements BackgroundService {
 	async fetchFromUrl(
 		streamUrl: string,
 		providerType: string,
-		providerHeaders?: Record<string, string>
+		providerHeaders?: Record<string, string>,
+		signal?: AbortSignal
 	): Promise<FetchFromUrlResult> {
+		throwIfAborted(signal);
+		const initialSafetyCheck = await resolveAndValidateUrl(streamUrl);
+		throwIfAborted(signal);
+		if (!initialSafetyCheck.safe) {
+			throw new ValidationError(`Stream URL blocked: ${initialSafetyCheck.reason}`);
+		}
+
 		const requestHeaders: Record<string, string> = {
 			'User-Agent': STB_USER_AGENT,
 			Accept: '*/*',
@@ -367,12 +374,14 @@ export class LiveTvStreamService implements BackgroundService {
 
 			response = await fetch(currentStreamUrl, {
 				headers: requestHeaders,
-				redirect: 'manual'
+				redirect: 'manual',
+				signal
 			});
 
 			if (response.status >= 300 && response.status < 400) {
 				const location = response.headers.get('location');
 				if (location) {
+					await response.body?.cancel();
 					const redirectUrl = new URL(location, currentStreamUrl).toString();
 					const redirectSafetyCheck = await resolveAndValidateUrl(redirectUrl);
 					if (!redirectSafetyCheck.safe) {
@@ -395,6 +404,7 @@ export class LiveTvStreamService implements BackgroundService {
 		}
 
 		if (!response.ok) {
+			await response.body?.cancel();
 			logger.error(
 				{
 					status: response.status,
@@ -449,6 +459,10 @@ export class LiveTvStreamService implements BackgroundService {
 	shutdown(): void {
 		logger.info('Service shutdown');
 	}
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+	if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
 }
 
 // Singleton instance

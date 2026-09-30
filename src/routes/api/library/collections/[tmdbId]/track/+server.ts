@@ -6,7 +6,6 @@ import { movies } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { tmdb } from '$lib/server/tmdb.js';
 import { requireAuth } from '$lib/server/auth/authorization.js';
-import { logger } from '$lib/logging';
 import { buildMovieFolderName } from '$lib/server/library/naming/naming-helpers.js';
 import { namingSettingsService } from '$lib/server/library/naming/NamingSettingsService.js';
 import {
@@ -17,7 +16,6 @@ import {
 	validateRootFolder,
 	getAnimeSubtypeEnforcement,
 	getEffectiveScoringProfileId,
-	getLanguageProfileId,
 	fetchMovieDetails,
 	fetchMovieExternalIds,
 	triggerMovieSearch
@@ -26,6 +24,9 @@ import { isLikelyAnimeMedia } from '$lib/shared/anime-classification.js';
 import { fetchAndStoreMovieAlternateTitles } from '$lib/server/services/AlternateTitleService.js';
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents.js';
+import { createChildLogger } from '$lib/logging';
+
+const logger = createChildLogger({ module: 'LibraryCollectionsTrackApi', logDomain: 'scans' });
 
 const trackSchema = z.object({
 	rootFolderId: z.string().min(1),
@@ -85,7 +86,14 @@ export const POST: RequestHandler = async (event) => {
 	}
 
 	const enforceAnimeSubtype = await getAnimeSubtypeEnforcement();
-	const effectiveProfileId = await getEffectiveScoringProfileId(scoringProfileId);
+	const collectionOwningLibrary = await getLibraryEntityService().resolveOwningLibraryForRootFolder(
+		rootFolderId,
+		'movie'
+	);
+	const effectiveProfileId = await getEffectiveScoringProfileId(
+		scoringProfileId,
+		collectionOwningLibrary
+	);
 	const namingConfig = namingSettingsService.getConfigSync();
 	const langCodes = [
 		...new Set([
@@ -110,6 +118,7 @@ export const POST: RequestHandler = async (event) => {
 			});
 
 			await validateRootFolder(rootFolderId, 'movie', {
+				requireWritable: true,
 				enforceAnimeSubtype,
 				isAnimeMedia,
 				mediaTitle: movieDetails.title
@@ -139,7 +148,6 @@ export const POST: RequestHandler = async (event) => {
 			);
 
 			const { imdbId } = await fetchMovieExternalIds(part.id);
-			const languageProfileId = await getLanguageProfileId(true, part.id);
 
 			const [newMovie] = await db
 				.insert(movies)
@@ -147,6 +155,7 @@ export const POST: RequestHandler = async (event) => {
 					tmdbId: part.id,
 					imdbId,
 					title: movieDetails.title,
+					originalLanguage: movieDetails.original_language,
 					originalTitle: movieDetails.original_title,
 					year,
 					overview: movieDetails.overview,
@@ -163,7 +172,6 @@ export const POST: RequestHandler = async (event) => {
 					availabilityDelay: 0,
 					hasFile: false,
 					wantsSubtitles: true,
-					languageProfileId,
 					tmdbCollectionId: collectionData?.id ?? tmdbCollectionId,
 					collectionName: collectionData?.name ?? collection.name,
 					releaseDate: movieDetails.release_date ?? null

@@ -1,12 +1,16 @@
 import type { LayoutServerLoad } from './$types';
 import { getManagedApiKeysForRequest } from '$lib/server/auth/index.js';
 import { error } from '@sveltejs/kit';
-import { logger } from '$lib/logging';
+import { createChildLogger } from '$lib/logging';
+
 import { getSystemSettingsService } from '$lib/server/settings/SystemSettingsService.js';
 import { db } from '$lib/server/db';
 import { settings } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 import { getMetadataProviderConfig } from '$lib/server/metadata/provider-settings.js';
+import { isArrCompatEnabled } from '$lib/server/arr/arrCompatSettings.js';
+
+const logger = createChildLogger({ module: 'SystemSettingsLayout', logDomain: 'system' });
 
 export const load: LayoutServerLoad = async ({ request, locals }) => {
 	// Require authentication
@@ -32,6 +36,7 @@ export const load: LayoutServerLoad = async ({ request, locals }) => {
 			mainApiKey,
 			streamingApiKey,
 			externalUrl,
+			arrCompatEnabled: isArrCompatEnabled(),
 			tmdb: {
 				hasApiKey: !!apiKeySetting,
 				configured: !!apiKeySetting
@@ -46,6 +51,7 @@ export const load: LayoutServerLoad = async ({ request, locals }) => {
 			mainApiKey: null,
 			streamingApiKey: null,
 			externalUrl: null,
+			arrCompatEnabled: false,
 			tmdb: { hasApiKey: false, configured: false },
 			metadataProviders: {
 				animeEnrichmentEnabled: true

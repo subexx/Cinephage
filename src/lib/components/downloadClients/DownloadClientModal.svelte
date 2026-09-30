@@ -11,6 +11,7 @@
 	import { clientDefinitions } from './forms/clientDefinitions';
 	import DownloadClientSettings from './forms/DownloadClientSettings.svelte';
 	import ClientFormFields from './ClientFormFields.svelte';
+	import DebridClientFields from './DebridClientFields.svelte';
 	import ClientSpecificOptions from './ClientSpecificOptions.svelte';
 	import ClientTestConnection from './ClientTestConnection.svelte';
 	import { toFriendlyDownloadClientError } from '$lib/downloadClients/errorMessages';
@@ -40,6 +41,7 @@
 		client?: DownloadClient | NntpServer | null;
 		initialImplementation?: DownloadClientImplementation | 'nntp' | null;
 		allowNntp?: boolean;
+		existingClients?: Array<{ id: string; implementation: string }>;
 		saving: boolean;
 		error?: string | null;
 		onClose: () => void;
@@ -68,6 +70,7 @@
 		client = null,
 		initialImplementation = null,
 		allowNntp = true,
+		existingClients = [],
 		saving,
 		error = null,
 		onClose,
@@ -94,6 +97,8 @@
 	let password = $state('');
 	let apiToken = $state('');
 	let removeAfterImport = $state(false);
+	let allowMovies = $state(true);
+	let allowTv = $state(true);
 
 	let movieCategory = $state('movies');
 	let tvCategory = $state('tv');
@@ -101,6 +106,7 @@
 	let recentPriority = $state<'normal' | 'high' | 'force'>('normal');
 	let olderPriority = $state<'normal' | 'high' | 'force'>('normal');
 	let initialState = $state<'start' | 'pause' | 'force'>('start');
+	let sequentialDownload = $state(false);
 
 	let downloadPathLocal = $state('');
 	let downloadPathRemote = $state('');
@@ -137,6 +143,15 @@
 	);
 	const isNntpServer = $derived(implementation === 'nntp');
 	const isDebrid = $derived(selectedDefinition?.isDebrid === true);
+	const showPriorityField = $derived.by(() => {
+		const group = selectedDefinition?.protocol;
+		if (!group || group !== 'debrid') return false;
+		const currentId = mode === 'edit' ? (client as DownloadClient | undefined)?.id : undefined;
+		return existingClients.some((c) => {
+			if (currentId && c.id === currentId) return false;
+			return clientDefinitions.find((d) => d.id === c.implementation)?.protocol === group;
+		});
+	});
 	const hasApiToken = $derived((client as DownloadClient | undefined)?.hasApiToken ?? false);
 	const isSabnzbd = $derived(implementation === 'sabnzbd');
 	const isMountModeClient = $derived(
@@ -230,7 +245,10 @@
 			recentPriority = dcClient?.recentPriority ?? 'normal';
 			olderPriority = dcClient?.olderPriority ?? 'normal';
 			initialState = dcClient?.initialState ?? 'start';
+			sequentialDownload = dcClient?.sequentialDownload ?? false;
 			removeAfterImport = dcClient?.removeAfterImport ?? false;
+			allowMovies = dcClient?.allowMovies ?? true;
+			allowTv = dcClient?.allowTv ?? true;
 			downloadPathLocal = dcClient?.downloadPathLocal ?? '';
 			downloadPathRemote = dcClient?.downloadPathRemote ?? '';
 			tempPathLocal = dcClient?.tempPathLocal ?? '';
@@ -294,6 +312,7 @@
 			recentPriority,
 			olderPriority,
 			initialState,
+			sequentialDownload,
 			downloadPathLocal,
 			downloadPathRemote,
 			tempPathLocal,
@@ -302,7 +321,9 @@
 			priority,
 			implementation: implementation as DownloadClientImplementation,
 			apiToken,
-			removeAfterImport
+			removeAfterImport,
+			allowMovies,
+			allowTv
 		};
 		return serializeDownloadClientForm(formState, isNntpServer, mode);
 	}
@@ -477,51 +498,21 @@
 			</div>
 		{:else}
 			{#if isDebrid}
-				<div class="space-y-4">
-					<div class="form-control">
-						<label class="label py-1" for="name">{m.common_name()}</label>
-						<input
-							id="name"
-							class="input-bordered input input-sm"
-							bind:value={name}
-							maxlength={MAX_NAME_LENGTH}
-						/>
-					</div>
-					<div class="form-control">
-						<label class="label py-1" for="apiToken">{m.downloadClient_apiToken()}</label>
-						<input
-							id="apiToken"
-							type="password"
-							class="input-bordered input input-sm"
-							bind:value={apiToken}
-							placeholder={mode === 'edit' && hasApiToken ? '********' : ''}
-						/>
-					</div>
-					<div class="form-control">
-						<label class="label py-1" for="priority">{m.common_priority()}</label>
-						<input
-							id="priority"
-							type="number"
-							min="1"
-							class="input-bordered input input-sm"
-							bind:value={priority}
-						/>
-					</div>
-					<label class="label cursor-pointer justify-start gap-2"
-						><input
-							type="checkbox"
-							class="checkbox checkbox-sm"
-							bind:checked={enabled}
-						/>{m.common_enabled()}</label
-					>
-					<label class="label cursor-pointer justify-start gap-2"
-						><input
-							type="checkbox"
-							class="checkbox checkbox-sm"
-							bind:checked={removeAfterImport}
-						/>{m.downloadClient_removeAfterImport()}</label
-					>
-				</div>
+				<DebridClientFields
+					bind:name
+					bind:apiToken
+					bind:priority
+					bind:enabled
+					bind:removeAfterImport
+					bind:allowMovies
+					bind:allowTv
+					{mode}
+					{hasApiToken}
+					selectedDefinitionName={selectedDefinition?.name ?? ''}
+					maxNameLength={MAX_NAME_LENGTH}
+					{nameTooLong}
+					showPriority={showPriorityField}
+				/>
 			{:else}<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
 					<div class="space-y-4">
 						<ClientFormFields
@@ -557,6 +548,7 @@
 							bind:recentPriority
 							bind:olderPriority
 							bind:initialState
+							bind:sequentialDownload
 							bind:downloadPathLocal
 							bind:downloadPathRemote
 							bind:tempPathLocal

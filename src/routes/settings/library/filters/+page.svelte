@@ -20,9 +20,6 @@
 	});
 	let saving = $state(false);
 
-	let languages = $derived(data.languages);
-	let regions = $derived(data.countries);
-
 	function toggleExcludedGenre(genreId: number, checked: boolean) {
 		if (checked) {
 			if (!filtersState.excluded_genre_ids.includes(genreId)) {
@@ -113,36 +110,6 @@
 		</div>
 	</SettingsSection>
 
-	<!-- Localization -->
-	<SettingsSection title={m.settings_filters_localization()}>
-		<div class="grid gap-6 md:grid-cols-2">
-			<div class="form-control">
-				<label class="label" for="language">
-					<span class="label-text">{m.settings_filters_preferredLanguage()}</span>
-				</label>
-				<select
-					id="language"
-					class="select-bordered select w-full"
-					bind:value={filtersState.language}
-				>
-					{#each languages as lang (lang.code)}
-						<option value={lang.code}>{lang.name}</option>
-					{/each}
-				</select>
-			</div>
-			<div class="form-control">
-				<label class="label" for="region">
-					<span class="label-text">{m.settings_filters_preferredRegion()}</span>
-				</label>
-				<select id="region" class="select-bordered select w-full" bind:value={filtersState.region}>
-					{#each regions as region (region.code)}
-						<option value={region.code}>{region.name}</option>
-					{/each}
-				</select>
-			</div>
-		</div>
-	</SettingsSection>
-
 	<!-- Genre Exclusion -->
 	<SettingsSection
 		title={m.settings_filters_excludedGenres()}
@@ -162,7 +129,7 @@
 					<label class="label cursor-pointer justify-start gap-2">
 						<input
 							type="checkbox"
-							class="checkbox checkbox-sm"
+							class="checkbox checkbox-sm checkbox-primary"
 							checked={filtersState.excluded_genre_ids.includes(genre.id)}
 							onchange={(event) => toggleExcludedGenre(genre.id, event.currentTarget.checked)}
 						/>

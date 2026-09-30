@@ -152,6 +152,17 @@ const SCHEDULED_TASKS: UnifiedTaskDefinition[] = [
 		defaultIntervalHours: 24,
 		minIntervalHours: 1,
 		intervalEditable: false
+	},
+	{
+		id: 'dbBackup',
+		name: 'Database Backup',
+		description: 'Create a daily backup of the SQLite database to the backups/scheduled folder',
+		category: 'scheduled',
+		runEndpoint: '/api/settings/system/db-backup/run',
+		intervalKey: 'db_backup_interval_hours',
+		defaultIntervalHours: 24,
+		minIntervalHours: 1,
+		intervalEditable: false
 	}
 ];
 
@@ -190,6 +201,22 @@ const MAINTENANCE_TASKS: UnifiedTaskDefinition[] = [
 			'Refresh metadata for all movies and series from TMDB. Updates titles, overviews, posters, collection data, and other metadata that may be missing or outdated.',
 		category: 'maintenance',
 		runEndpoint: '/api/monitoring/search/metadata-refresh'
+	},
+	{
+		id: 'regenerate-sidecars',
+		name: 'Regenerate Sidecar Files',
+		description:
+			'Regenerate .nfo and poster/fanart sidecar files for the whole library, overwriting existing ones. Useful for backfilling older imports.',
+		category: 'maintenance',
+		runEndpoint: '/api/library/regenerate-sidecars'
+	},
+	{
+		id: 'original-language-backfill',
+		name: 'Original Language Backfill',
+		description:
+			'Fill in the original language for movies and series that are missing it (typically imported before this data was tracked) by fetching their TMDB details. Safe to re-run; already-populated items are skipped.',
+		category: 'maintenance',
+		runEndpoint: '/api/monitoring/search/original-language-backfill'
 	}
 ];
 

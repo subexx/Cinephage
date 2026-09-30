@@ -11,14 +11,20 @@ import { db } from '$lib/server/db/index.js';
 import { movies } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { tmdb } from '$lib/server/tmdb.js';
-import { logger } from '$lib/logging';
-import { enrichAnimeMetadata } from '$lib/server/metadata/provider-resolution.js';
+import {
+	enrichAnimeMetadata,
+	persistEnrichmentTitleVariants
+} from '$lib/server/metadata/provider-resolution.js';
 import { isLikelyAnimeMedia } from '$lib/shared/anime-classification.js';
+import { resolveLanguage } from '$lib/server/metadata/metadata-refresh.js';
+import { createChildLogger } from '$lib/logging';
 import {
 	startRefresh,
 	stopRefresh,
 	isMovieRefreshing
 } from '$lib/server/library/ActiveSearchTracker.js';
+
+const logger = createChildLogger({ module: 'LibraryMovieRefreshApi', logDomain: 'scans' });
 
 export const POST: RequestHandler = async ({ params }) => {
 	const { id } = params;
@@ -40,9 +46,28 @@ export const POST: RequestHandler = async ({ params }) => {
 	startRefresh(refreshId, { movieId: id });
 
 	try {
+		// Honor the per-item metadata language so a manual refresh produces the
+		// same localized titles/overviews as the background task. A null result
+		// keeps the global TMDB default (language_settings.metadata_locale).
+		const fetchLanguage = await resolveLanguage(
+			movieData.metadataLanguageMode,
+			movieData.metadataLanguageValue,
+			`/movie/${movieData.tmdbId}`,
+			{
+				originalLanguage: movieData.originalLanguage,
+				onProbed: async (probed) => {
+					await db.update(movies).set({ originalLanguage: probed }).where(eq(movies.id, id));
+					logger.info(
+						{ movieId: id, originalLanguage: probed },
+						'[RefreshMovie] Backfilled movie original_language'
+					);
+				}
+			}
+		);
+
 		// Fetch fresh data from TMDB (canonical identity/overview/genres)
 		const [tmdbMovie, externalIds] = await Promise.all([
-			tmdb.getMovie(movieData.tmdbId),
+			tmdb.getMovie(movieData.tmdbId, fetchLanguage),
 			tmdb.getMovieExternalIds(movieData.tmdbId).catch((err) => {
 				logger.warn(
 					{
@@ -88,6 +113,9 @@ export const POST: RequestHandler = async ({ params }) => {
 					adultSources.push(pid);
 				}
 			}
+			// Persist AniList/MAL title variants as alternate titles
+			// (idempotent; language only when the provider supplies one).
+			await persistEnrichmentTitleVariants('movie', id, enrichment.details);
 		}
 		// TMDB adult flag (authoritative for non-anime too)
 		if (tmdbMovie.adult === true) {
@@ -108,6 +136,7 @@ export const POST: RequestHandler = async ({ params }) => {
 			.set({
 				title: tmdbMovie.title,
 				originalTitle: tmdbMovie.original_title,
+				originalLanguage: tmdbMovie.original_language,
 				overview: tmdbMovie.overview,
 				posterPath: tmdbMovie.poster_path,
 				backdropPath: tmdbMovie.backdrop_path,

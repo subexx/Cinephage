@@ -3,7 +3,7 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import ModalWrapper from '$lib/components/ui/modal/ModalWrapper.svelte';
-	import { sortRootFoldersForMediaType } from '$lib/utils/root-folders.js';
+	import { getWritableRootFoldersForMediaType } from '$lib/utils/root-folders.js';
 	import { isLikelyAnimeMedia } from '$lib/shared/anime-classification.js';
 	import type { RootFolderWithSpaceAndDefault as RootFolder } from '$lib/types/downloadClient.js';
 	import type { DesiredQuality } from '$lib/types/library.js';
@@ -17,6 +17,8 @@
 		getScoringProfiles,
 		getLibraryClassificationSettings
 	} from '$lib/api/settings.js';
+	import { getEffectiveSubtitleProfile, getLanguageProfiles } from '$lib/api/subtitles.js';
+	import type { SubtitleRequirement } from '$lib/shared/language-profile.js';
 	import { getLibraryStatus, createMovie, createSeries, bulkAddMovies } from '$lib/api/library.js';
 	import { getTmdb } from '$lib/api/discover.js';
 
@@ -38,6 +40,7 @@
 		mediaType: 'movie' | 'tv';
 		defaultSearchOnAdd: boolean;
 		defaultWantsSubtitles: boolean;
+		qualityProfileId?: string | null;
 		rootFolders: Array<{ id: string }>;
 	}
 
@@ -49,6 +52,16 @@
 		isDefault?: boolean;
 		minResolution?: string | null;
 		maxResolution?: string | null;
+	}
+
+	/** The subtitle profile a new item will inherit, plus the level it came from. */
+	interface EffectiveSubtitleProfileInfo {
+		profile: {
+			id: string;
+			name: string;
+			subtitles?: SubtitleRequirement[];
+		};
+		source: 'movie' | 'series' | 'library' | 'default';
 	}
 
 	interface Season {
@@ -96,6 +109,8 @@
 	let rootFolders = $state<RootFolder[]>([]);
 	let libraries = $state<LibraryEntity[]>([]);
 	let scoringProfiles = $state<ScoringProfile[]>([]);
+	/** Resolved subtitle profile for a NEW item; null once the endpoint reports no default. */
+	let effectiveSubtitleProfile = $state<EffectiveSubtitleProfileInfo | null>(null);
 	let seasons = $state<Season[]>([]);
 	let isLoading = $state(false);
 	let isSubmitting = $state(false);
@@ -111,6 +126,12 @@
 	let selectedScoringProfile = $state('');
 	let searchOnAdd = $state(true);
 	let wantsSubtitles = $state(true);
+	/** Add-time language profile override ('' = inherit). */
+	let selectedLanguageProfile = $state('');
+	/** Add-time per-item subtitle requirement override (null = inherit). */
+	let subtitleRequirementsOverride = $state<SubtitleRequirement[] | null>(null);
+	/** Language profiles available for the add-time picker. */
+	let languageProfiles = $state<Array<{ id: string; name: string }>>([]);
 	let monitoredTouched = $state(false);
 	let searchOnAddTouched = $state(false);
 	let wantsSubtitlesTouched = $state(false);
@@ -131,7 +152,7 @@
 		enforceAnimeSubtype ? (detectedAnime ? ('anime' as const) : ('standard' as const)) : undefined
 	);
 	const filteredRootFolders = $derived(
-		sortRootFoldersForMediaType(rootFolders, mediaType, requiredMediaSubType)
+		getWritableRootFoldersForMediaType(rootFolders, mediaType, requiredMediaSubType)
 	);
 	const rootFolderLibraryMap = $derived.by(() => {
 		const assignments = new SvelteMap<string, LibraryEntity>();
@@ -196,6 +217,8 @@
 			monitored = true;
 			searchOnAdd = true;
 			wantsSubtitles = true;
+			selectedLanguageProfile = '';
+			subtitleRequirementsOverride = null;
 			minimumAvailability = 'released';
 			availabilityDelay = 0;
 			desiredQualities = [];
@@ -215,6 +238,7 @@
 			monitoredTouched = false;
 			searchOnAddTouched = false;
 			wantsSubtitlesTouched = false;
+			effectiveSubtitleProfile = null;
 
 			loadData();
 		}
@@ -338,24 +362,39 @@
 		try {
 			const tmdbPromise = mediaType === 'tv' ? getTmdb(`tv/${tmdbId}`) : getTmdb(`movie/${tmdbId}`);
 
-			const [foldersData, librariesData, profilesData, classificationData, tmdbRes] =
-				(await Promise.all([
-					getRootFolders(),
-					getLibraries({ mediaType }),
-					getScoringProfiles(),
-					getLibraryClassificationSettings(),
-					tmdbPromise
-				])) as unknown as [
-					{ folders?: RootFolder[] } | RootFolder[],
-					{ libraries?: LibraryEntity[] },
-					{ profiles?: ScoringProfile[]; defaultProfileId?: string },
-					{ enforceAnimeSubtype?: boolean },
-					unknown
-				];
+			const [
+				foldersData,
+				librariesData,
+				profilesData,
+				classificationData,
+				subtitleProfileData,
+				tmdbRes,
+				languageProfilesData
+			] = (await Promise.all([
+				getRootFolders(),
+				getLibraries({ mediaType }),
+				getScoringProfiles(),
+				getLibraryClassificationSettings(),
+				// Non-critical: powers the effective-profile line + warning on the add form.
+				getEffectiveSubtitleProfile(mediaType === 'tv' ? 'series' : 'movie').catch(() => undefined),
+				// Non-critical: powers the add-time language profile picker.
+				getLanguageProfiles().catch(() => ({ profiles: [] })),
+				tmdbPromise
+			])) as unknown as [
+				{ folders?: RootFolder[] } | RootFolder[],
+				{ libraries?: LibraryEntity[] },
+				{ profiles?: ScoringProfile[]; defaultProfileId?: string },
+				{ enforceAnimeSubtype?: boolean },
+				EffectiveSubtitleProfileInfo | null | undefined,
+				unknown,
+				{ profiles?: Array<{ id: string; name: string }> }
+			];
 
 			rootFolders = Array.isArray(foldersData) ? foldersData : (foldersData.folders ?? []);
 			libraries = librariesData.libraries ?? [];
 			scoringProfiles = profilesData.profiles ?? [];
+			languageProfiles = languageProfilesData?.profiles ?? [];
+			effectiveSubtitleProfile = subtitleProfileData ?? null;
 			enforceAnimeSubtype = classificationData?.enforceAnimeSubtype === true;
 
 			if (mediaType === 'tv' && tmdbRes) {
@@ -382,7 +421,14 @@
 
 			selectedRootFolder = getRecommendedRootFolderId(filteredRootFolders) ?? '';
 
-			const defaultProfileId = profilesData.defaultProfileId;
+			const libraryProfileId = selectedRootFolderLibrary?.qualityProfileId;
+			const libraryProfileIsValid =
+				libraryProfileId !== undefined &&
+				libraryProfileId !== null &&
+				scoringProfiles.some((p) => p.id === libraryProfileId);
+			const defaultProfileId = libraryProfileIsValid
+				? libraryProfileId
+				: profilesData.defaultProfileId;
 			const defaultProfile =
 				(defaultProfileId && scoringProfiles.find((p) => p.id === defaultProfileId)) ??
 				scoringProfiles.find((p) => p.isDefault) ??
@@ -447,7 +493,9 @@
 				scoringProfileId: selectedScoringProfile || undefined,
 				monitored: willBeMonitored,
 				searchOnAdd: willSearchOnAdd,
-				wantsSubtitles
+				wantsSubtitles,
+				languageProfileId: selectedLanguageProfile || null,
+				subtitleRequirementsOverride
 			};
 
 			const result = (mediaType === 'movie'
@@ -588,6 +636,11 @@
 				{enforceAnimeSubtype}
 				{error}
 				{collection}
+				{effectiveSubtitleProfile}
+				{languageProfiles}
+				effectiveSubtitleRequirements={effectiveSubtitleProfile?.profile.subtitles ?? null}
+				bind:selectedLanguageProfile
+				bind:subtitleRequirementsOverride
 				onMonitoredInput={handleMonitoredInput}
 				onSearchOnAddInput={handleSearchOnAddInput}
 				onWantsSubtitlesInput={handleWantsSubtitlesInput}
@@ -613,6 +666,11 @@
 				{error}
 				{seasons}
 				{monitoredSeasons}
+				{effectiveSubtitleProfile}
+				{languageProfiles}
+				effectiveSubtitleRequirements={effectiveSubtitleProfile?.profile.subtitles ?? null}
+				bind:selectedLanguageProfile
+				bind:subtitleRequirementsOverride
 				onMonitoredInput={handleMonitoredInput}
 				onSearchOnAddInput={handleSearchOnAddInput}
 				onWantsSubtitlesInput={handleWantsSubtitlesInput}

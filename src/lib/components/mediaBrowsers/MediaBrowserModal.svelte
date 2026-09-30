@@ -150,6 +150,13 @@
 		testResult = null;
 		try {
 			testResult = await onTest(getFormData());
+			// The running server decides its type: connect/test probes the
+			// product and adopts what actually answered (Jellyfin vs Emby vs
+			// Plex) instead of trusting the picker.
+			const detected = testResult?.serverInfo?.detectedType;
+			if (testResult?.success && detected && detected !== serverType) {
+				serverType = detected;
+			}
 		} finally {
 			testing = false;
 		}
@@ -328,7 +335,11 @@
 				</div>
 
 				<label class="label cursor-pointer gap-2">
-					<input type="checkbox" class="checkbox checkbox-sm" bind:checked={enabled} />
+					<input
+						type="checkbox"
+						class="checkbox checkbox-sm checkbox-primary"
+						bind:checked={enabled}
+					/>
 					<span class="label-text">{m.common_enabled()}</span>
 				</label>
 			</div>
@@ -383,7 +394,7 @@
 						<div class="flex items-center gap-2">
 							<input
 								type="text"
-								class="input-bordered input input-sm flex-1"
+								class="input-bordered input flex-1 input-sm"
 								placeholder={m.mediaBrowser_localPathPlaceholder()}
 								value={mapping.localPath}
 								onchange={(e) => updatePathMapping(index, 'localPath', e.currentTarget.value)}
@@ -391,14 +402,14 @@
 							<span class="text-base-content/50">{m.mediaBrowser_to()}</span>
 							<input
 								type="text"
-								class="input-bordered input input-sm flex-1"
+								class="input-bordered input flex-1 input-sm"
 								placeholder={m.mediaBrowser_remotePathPlaceholder()}
 								value={mapping.remotePath}
 								onchange={(e) => updatePathMapping(index, 'remotePath', e.currentTarget.value)}
 							/>
 							<button
 								type="button"
-								class="btn text-error btn-ghost btn-sm"
+								class="btn btn-ghost text-error btn-sm"
 								onclick={() => removePathMapping(index)}
 								aria-label={m.action_remove()}
 							>
@@ -425,7 +436,11 @@
 		<TestResult
 			result={testResult}
 			successDetails={testResult?.serverInfo
-				? `${testResult.serverInfo.serverName} v${testResult.serverInfo.version}`
+				? `${testResult.serverInfo.serverName} v${testResult.serverInfo.version}${
+						testResult.serverInfo.detectedType
+							? ` · ${getServerTypeName(testResult.serverInfo.detectedType)}`
+							: ''
+					}`
 				: undefined}
 		/>
 

@@ -13,7 +13,7 @@
 	} from 'lucide-svelte';
 	import EpisodeRow from './EpisodeRow.svelte';
 	import AutoSearchStatus from './AutoSearchStatus.svelte';
-	import { formatBytes } from '$lib/utils/format.js';
+	import { formatBytes, todayDateString } from '$lib/utils/format.js';
 	import { calculateEpisodeStats } from '$lib/utils/episode-stats.svelte';
 	import * as m from '$lib/paraglide/messages.js';
 
@@ -109,6 +109,7 @@
 		onSubtitleSearch?: (episode: Episode) => void;
 		onSubtitleAutoSearch?: (episode: Episode) => void;
 		onSubtitleSync?: (subtitleId: string) => void;
+		onSubtitleGateChange?: (episodeId: string, value: boolean | null) => void;
 		onSubtitleDelete?: (subtitleId: string) => void;
 		onSeasonDelete?: (season: Season) => void;
 		onEpisodeDelete?: (episode: Episode) => void;
@@ -145,6 +146,7 @@
 		onSubtitleSearch,
 		onSubtitleAutoSearch,
 		onSubtitleSync,
+		onSubtitleGateChange,
 		onSubtitleDelete,
 		onSeasonDelete,
 		onEpisodeDelete
@@ -196,11 +198,22 @@
 		return 'idle';
 	});
 	const seasonMonitorDisabled = $derived.by(() => !seriesMonitored);
+
+	const seasonPartiallyMonitored = $derived.by(() => {
+		const today = todayDateString();
+		const aired = season.episodes.filter((ep) => ep.airDate && ep.airDate <= today);
+		if (aired.length === 0) return false;
+		const monitored = aired.filter((ep) => ep.monitored !== false).length;
+		return monitored > 0 && monitored < aired.length;
+	});
+
 	const seasonMonitorTooltip = $derived.by(() =>
 		seriesMonitored
-			? season.monitored
-				? m.library_seasonAccordion_seasonMonitored()
-				: m.library_seasonAccordion_seasonNotMonitored()
+			? seasonPartiallyMonitored
+				? m.library_seasonAccordion_seasonPartiallyMonitored()
+				: season.monitored
+					? m.library_seasonAccordion_seasonMonitored()
+					: m.library_seasonAccordion_seasonNotMonitored()
 			: m.library_seasonAccordion_seriesUnmonitoredTooltip()
 	);
 
@@ -309,19 +322,21 @@
 			</button>
 
 			<!-- Action buttons -->
-			<div class="flex shrink-0 items-center gap-2 mx-auto sm:mx-0 sm:ml-auto">
+			<div class="mx-auto flex shrink-0 items-center gap-2 sm:mx-0 sm:ml-auto">
 				<!-- Season monitor toggle -->
 				<button
-					class="btn btn-ghost btn-sm {season.monitored
-						? 'text-success'
-						: 'text-base-content/40'} {seasonMonitorDisabled ? 'opacity-40' : ''}"
+					class="btn btn-ghost btn-sm {seasonPartiallyMonitored
+						? 'text-warning'
+						: season.monitored
+							? 'text-success'
+							: 'text-base-content/40'} {seasonMonitorDisabled ? 'opacity-40' : ''}"
 					onclick={handleSeasonMonitorToggle}
 					disabled={seasonMonitorDisabled}
 					title={seasonMonitorTooltip}
 				>
 					{#if seasonMonitorDisabled}
 						<Lock size={16} />
-					{:else if season.monitored}
+					{:else if seasonPartiallyMonitored || season.monitored}
 						<Eye size={16} />
 					{:else}
 						<EyeOff size={16} />
@@ -410,7 +425,7 @@
 									<th class="w-10">
 										<input
 											type="checkbox"
-											class="checkbox checkbox-sm"
+											class="checkbox checkbox-sm checkbox-primary"
 											checked={isAllSelected}
 											indeterminate={isSomeSelected}
 											onchange={handleSelectAllChange}
@@ -454,6 +469,7 @@
 									{onSubtitleSearch}
 									{onSubtitleAutoSearch}
 									{onSubtitleSync}
+									{onSubtitleGateChange}
 									{onSubtitleDelete}
 									onDelete={onEpisodeDelete}
 								/>

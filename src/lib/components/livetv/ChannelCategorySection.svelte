@@ -155,7 +155,7 @@
 		{#if channels.length > 0}
 			<input
 				type="checkbox"
-				class="checkbox checkbox-sm"
+				class="checkbox checkbox-sm checkbox-primary"
 				checked={allSelected}
 				indeterminate={someSelected}
 				onclick={(e) => {
@@ -211,7 +211,7 @@
 					<div class="flex items-start gap-3">
 						<input
 							type="checkbox"
-							class="checkbox mt-1 checkbox-sm"
+							class="checkbox mt-1 checkbox-sm checkbox-primary"
 							checked={selectedIds.has(channel.id)}
 							onchange={(e) => onSelect(channel.id, e.currentTarget.checked)}
 						/>
@@ -252,7 +252,7 @@
 										<Pencil class="h-3.5 w-3.5" />
 									</button>
 									<button
-										class="btn text-error btn-ghost btn-xs hover:bg-error/10"
+										class="btn btn-ghost text-error btn-xs hover:bg-error/10"
 										onclick={() => onRemove(channel)}
 									>
 										<Trash2 class="h-3.5 w-3.5" />
