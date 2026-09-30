@@ -125,7 +125,7 @@ describe('Bulk movie additions', () => {
 		const [inserted] = testDb.db.select().from(movies).all();
 		expect(inserted.tmdbId).toBe(9002);
 		expect(inserted.wantsSubtitles).toBe(true);
-		// Per-item override stays NULL so library/instance inheritance applies.
-		expect(inserted.languageProfileId).toBeNull();
+		// Fork default: stamp English+Original when subtitles are wanted.
+		expect(inserted.languageProfileId).toBe('lang-en-original');
 	});
 });
