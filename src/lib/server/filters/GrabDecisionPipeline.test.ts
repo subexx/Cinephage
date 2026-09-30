@@ -212,6 +212,7 @@ describe('GrabDecisionPipeline', () => {
 			'duplicateHash',
 			'mediaOccupancy',
 			'blockedExtension',
+			'audioLanguage',
 			'upgrade',
 			'delay'
 		]);
