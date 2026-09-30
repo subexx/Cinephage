@@ -1431,10 +1431,16 @@
 
 	async function removeQueueItem(
 		id: string,
-		options: { refresh?: boolean; closeDetailModal?: boolean; removeFromClient?: boolean } = {}
+		options: {
+			refresh?: boolean;
+			closeDetailModal?: boolean;
+			removeFromClient?: boolean;
+			blocklist?: boolean;
+		} = {}
 	): Promise<void> {
-		const { refresh = true, closeDetailModal = true, removeFromClient = true } = options;
-		await removeQueueItemApi(id, { removeFromClient });
+		const { refresh = true, closeDetailModal = true, removeFromClient = true, blocklist = false } =
+			options;
+		await removeQueueItemApi(id, { removeFromClient, blocklist });
 
 		if (refresh) {
 			await refreshActivityData({ force: true });
@@ -1476,7 +1482,8 @@
 	}
 
 	async function handleRemove(id: string) {
-		await removeQueueItem(id);
+		const failed = activities.some((a) => a.queueItemId === id && a.status === 'failed');
+		await removeQueueItem(id, { blocklist: failed });
 	}
 
 	async function handleRetry(id: string) {

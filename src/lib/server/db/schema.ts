@@ -2731,6 +2731,8 @@ export const smartLists = sqliteTable(
 		wantsSubtitles: integer('wants_subtitles', { mode: 'boolean' }).default(true),
 		// Language profile for auto-added items
 		languageProfileId: text('language_profile_id'),
+		// Desired qualities for auto-added movies (null/empty/<2 = single-quality)
+		desiredQualities: text('desired_qualities', { mode: 'json' }).$type<DesiredQuality[]>(),
 
 		// === LIST SOURCE TYPE ===
 		// Source of list items: 'tmdb-discover', 'external-json', 'trakt-list', 'custom-manual'

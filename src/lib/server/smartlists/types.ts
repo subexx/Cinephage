@@ -53,6 +53,7 @@ export interface CreateSmartListInput {
 	minimumAvailability?: string;
 	wantsSubtitles?: boolean;
 	languageProfileId?: string;
+	desiredQualities?: string[] | null;
 	refreshIntervalHours?: number;
 	enabled?: boolean;
 	listSourceType?: ListSourceType;
@@ -83,6 +84,7 @@ export interface UpdateSmartListInput {
 	minimumAvailability?: string;
 	wantsSubtitles?: boolean;
 	languageProfileId?: string | null;
+	desiredQualities?: string[] | null;
 	refreshIntervalHours?: number;
 	enabled?: boolean;
 	listSourceType?: ListSourceType;

@@ -6,6 +6,7 @@
 	import { toasts } from '$lib/stores/toast.svelte';
 	import type { SmartListRecord, SmartListFilters } from '$lib/server/db/schema.js';
 	import type { SmartListCreateRequest } from '$lib/validation/schemas.js';
+	import type { DesiredQuality } from '$lib/types/library.js';
 	import type { RootFolderBasic as RootFolder } from '$lib/types/downloadClient.js';
 	import FilterBuilder from './FilterBuilder.svelte';
 	import PreviewPanel from './PreviewPanel.svelte';
@@ -87,6 +88,9 @@
 	let rootFolderId = $state('');
 	let scoringProfileId = $state('');
 	let autoAddMonitored = $state(true);
+	let wantsSubtitles = $state(true);
+	let languageProfileId = $state('');
+	let desiredQualities = $state<DesiredQuality[]>([]);
 
 	// Sync form state when list prop changes
 	$effect(() => {
@@ -109,6 +113,9 @@
 			rootFolderId = list.rootFolderId ?? '';
 			scoringProfileId = list.scoringProfileId ?? '';
 			autoAddMonitored = list.autoAddMonitored ?? true;
+			wantsSubtitles = list.wantsSubtitles ?? true;
+			languageProfileId = list.languageProfileId ?? '';
+			desiredQualities = (list.desiredQualities as DesiredQuality[] | null) ?? [];
 		}
 	});
 
@@ -385,7 +392,10 @@
 				autoAddBehavior,
 				rootFolderId: rootFolderId || undefined,
 				scoringProfileId: scoringProfileId || undefined,
-				autoAddMonitored
+				autoAddMonitored,
+				wantsSubtitles,
+				languageProfileId: languageProfileId || undefined,
+				desiredQualities: mediaType === 'movie' && desiredQualities.length > 0 ? desiredQualities : null
 			};
 
 			const result = list
@@ -534,6 +544,9 @@
 				bind:rootFolderId
 				bind:scoringProfileId
 				bind:autoAddMonitored
+				bind:wantsSubtitles
+				bind:languageProfileId
+				bind:desiredQualities
 				bind:open={listSettingsOpen}
 				onToggle={handleListSettingsToggle}
 				{mediaType}

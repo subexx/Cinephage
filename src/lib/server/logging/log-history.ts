@@ -1,5 +1,5 @@
 import { mkdir, open, opendir, unlink } from 'node:fs/promises';
-import { createWriteStream, existsSync } from 'node:fs';
+import { createWriteStream, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { stderr } from 'node:process';
 
@@ -40,6 +40,8 @@ const LOG_RETENTION_SETTINGS_KEY = 'logs_retention_days';
 export const DEFAULT_LOG_RETENTION_DAYS = 7;
 export const MIN_LOG_RETENTION_DAYS = 1;
 export const MAX_LOG_RETENTION_DAYS = 90;
+export const DEFAULT_MAX_LOG_FILE_BYTES = 50 * 1024 * 1024;
+export const DEFAULT_MAX_LOG_DIR_BYTES = 500 * 1024 * 1024;
 
 const LOG_MIN_LEVEL_SETTINGS_KEY = 'logs_min_level';
 const LEVEL_ORDER: Record<CapturedLogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 };
@@ -98,16 +100,39 @@ function getFileDatePrefix(value: Date): string {
 	return value.toISOString().slice(0, 10);
 }
 
-function getLogFilePath(value: Date): string {
-	return join(LOGS_DIR, `app-${getFileDatePrefix(value)}.jsonl`);
+function getMaxLogFileBytes(): number {
+	const parsed = Number(process.env.LOG_MAX_FILE_BYTES);
+	if (Number.isFinite(parsed) && parsed > 0) return parsed;
+	return DEFAULT_MAX_LOG_FILE_BYTES;
 }
 
-function parseLogFileDate(fileName: string): Date | null {
-	const match = /^app-(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(fileName);
+function getMaxLogDirBytes(): number {
+	const parsed = Number(process.env.LOG_MAX_DIR_BYTES);
+	if (Number.isFinite(parsed) && parsed > 0) return parsed;
+	return DEFAULT_MAX_LOG_DIR_BYTES;
+}
+
+function getLogFilePath(value: Date, part = 0): string {
+	const prefix = getFileDatePrefix(value);
+	return part > 0
+		? join(LOGS_DIR, `app-${prefix}.${part}.jsonl`)
+		: join(LOGS_DIR, `app-${prefix}.jsonl`);
+}
+
+export function parseLogFileDate(fileName: string): Date | null {
+	const match = /^app-(\d{4}-\d{2}-\d{2})(?:\.\d+)?\.jsonl$/.exec(fileName);
 	if (!match) return null;
 
 	const parsed = new Date(`${match[1]}T00:00:00.000Z`);
 	return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function nextRotatedLogFilePath(filePath: string): string {
+	const base = filePath.replace(/\\/g, '/').split('/').pop() ?? '';
+	const match = /^app-(\d{4}-\d{2}-\d{2})(?:\.(\d+))?\.jsonl$/.exec(base);
+	if (!match) return filePath;
+	const part = match[2] ? Number(match[2]) + 1 : 1;
+	return join(LOGS_DIR, `app-${match[1]}.${part}.jsonl`);
 }
 
 function parseTimestamp(value: string | undefined): number | null {
@@ -338,6 +363,8 @@ class LogHistoryService {
 
 	private minCaptureLevel: CapturedLogLevel | null = null;
 
+	private bytesWritten = 0;
+
 	private async ensureMinCaptureLevelLoaded(): Promise<CapturedLogLevel> {
 		if (this.minCaptureLevel === null) {
 			this.minCaptureLevel = await this.getMinCaptureLevel();
@@ -400,25 +427,30 @@ class LogHistoryService {
 	}
 
 	append(entry: CapturedLogEntry): void {
+		if (entry.level === 'debug') {
+			return;
+		}
+
 		this.pendingWrites = this.pendingWrites
 			.then(async () => {
 				const minLevel = await this.ensureMinCaptureLevelLoaded();
 				if (LEVEL_ORDER[entry.level] < LEVEL_ORDER[minLevel]) return;
 
 				await mkdir(LOGS_DIR, { recursive: true });
-				const filePath = getLogFilePath(new Date(entry.timestamp));
-				this.rotateIfNeeded(filePath);
+				this.rotateIfNeeded(new Date(entry.timestamp));
+				const line = `${JSON.stringify(entry)}\n`;
 				await new Promise<void>((resolve, reject) => {
 					if (!this.stream || this.stream.destroyed || !this.stream.writable) {
 						reject(new Error('Log history stream is not available'));
 						return;
 					}
 
-					this.stream.write(`${JSON.stringify(entry)}\n`, (error) => {
+					this.stream.write(line, (error) => {
 						if (error) {
 							reject(error);
 							return;
 						}
+						this.bytesWritten += Buffer.byteLength(line, 'utf8');
 						resolve();
 					});
 				});
@@ -478,36 +510,65 @@ class LogHistoryService {
 
 		const cutoff = Date.now() - resolvedRetention * 24 * 60 * 60 * 1000;
 		const directory = await opendir(LOGS_DIR);
+		const kept: { name: string; path: string; mtime: number; size: number }[] = [];
 
 		for await (const entry of directory) {
 			if (!entry.isFile()) continue;
 			const fileDate = parseLogFileDate(entry.name);
 			if (!fileDate) continue;
 
-			const dayEnd = fileDate.getTime() + 24 * 60 * 60 * 1000 - 1;
-			if (dayEnd >= cutoff) continue;
-
 			const filePath = join(LOGS_DIR, entry.name);
-			if (filePath === this.currentFilePath) {
-				this.closeStream();
+			const dayEnd = fileDate.getTime() + 24 * 60 * 60 * 1000 - 1;
+			if (dayEnd < cutoff) {
+				if (filePath === this.currentFilePath) {
+					this.closeStream();
+				}
+				await unlink(filePath);
+				continue;
 			}
 
-			await unlink(filePath);
+			try {
+				const info = statSync(filePath);
+				kept.push({
+					name: entry.name,
+					path: filePath,
+					mtime: info.mtimeMs,
+					size: info.size
+				});
+			} catch {
+				// skip unreadable files
+			}
+		}
+
+		const maxDirBytes = getMaxLogDirBytes();
+		kept.sort((a, b) => a.mtime - b.mtime);
+		let total = kept.reduce((sum, file) => sum + file.size, 0);
+		for (const file of kept) {
+			if (total <= maxDirBytes) break;
+			if (file.path === this.currentFilePath) continue;
+			try {
+				await unlink(file.path);
+				total -= file.size;
+			} catch {
+				// ignore
+			}
 		}
 	}
 
-	private rotateIfNeeded(filePath: string): void {
-		if (
-			this.currentFilePath === filePath &&
-			this.stream &&
-			!this.stream.destroyed &&
-			this.stream.writable
-		) {
-			return;
+	private findLatestPartForDate(date: Date): string {
+		let latest = getLogFilePath(date, 0);
+		let part = 0;
+		while (existsSync(getLogFilePath(date, part + 1))) {
+			part += 1;
+			latest = getLogFilePath(date, part);
 		}
+		return latest;
+	}
 
+	private openStream(filePath: string): void {
 		this.closeStream();
 		this.currentFilePath = filePath;
+		this.bytesWritten = existsSync(filePath) ? statSync(filePath).size : 0;
 		this.stream = createWriteStream(filePath, {
 			flags: 'a',
 			encoding: 'utf8'
@@ -517,12 +578,30 @@ class LogHistoryService {
 		});
 	}
 
+	private rotateIfNeeded(date: Date): void {
+		const datePrefix = getFileDatePrefix(date);
+		const belongsToDate =
+			this.currentFilePath?.includes(`app-${datePrefix}`) &&
+			this.stream &&
+			!this.stream.destroyed &&
+			this.stream.writable;
+
+		if (!belongsToDate) {
+			this.openStream(this.findLatestPartForDate(date));
+		}
+
+		if (this.bytesWritten >= getMaxLogFileBytes() && this.currentFilePath) {
+			this.openStream(nextRotatedLogFilePath(this.currentFilePath));
+		}
+	}
+
 	private closeStream(): void {
 		if (this.stream) {
 			this.stream.end();
 			this.stream = null;
 		}
 		this.currentFilePath = null;
+		this.bytesWritten = 0;
 	}
 
 	private scheduleCleanup(): void {

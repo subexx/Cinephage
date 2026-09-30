@@ -114,6 +114,7 @@ export class SmartListService {
 				minimumAvailability: input.minimumAvailability ?? 'released',
 				wantsSubtitles: input.wantsSubtitles ?? true,
 				languageProfileId: input.languageProfileId,
+				desiredQualities: input.desiredQualities ?? null,
 				refreshIntervalHours: input.refreshIntervalHours ?? 24,
 				enabled: input.enabled ?? true,
 				listSourceType,
@@ -162,6 +163,7 @@ export class SmartListService {
 			updates.minimumAvailability = input.minimumAvailability;
 		if (input.wantsSubtitles !== undefined) updates.wantsSubtitles = input.wantsSubtitles;
 		if (input.languageProfileId !== undefined) updates.languageProfileId = input.languageProfileId;
+		if (input.desiredQualities !== undefined) updates.desiredQualities = input.desiredQualities;
 		if (input.refreshIntervalHours !== undefined) {
 			updates.refreshIntervalHours = input.refreshIntervalHours;
 			// Recalculate next refresh time
@@ -876,6 +878,7 @@ export class SmartListService {
 						libraryId: owningLibrary.id,
 						rootFolderId: list.rootFolderId,
 						scoringProfileId,
+						desiredQualities: list.desiredQualities ?? null,
 						monitored,
 						minimumAvailability: list.minimumAvailability ?? 'released',
 						hasFile: false,
@@ -1523,6 +1526,7 @@ export class SmartListService {
 						libraryId: owningLibrary.id,
 						rootFolderId: list.rootFolderId!,
 						scoringProfileId,
+						desiredQualities: list.desiredQualities ?? null,
 						monitored,
 						minimumAvailability: list.minimumAvailability ?? 'released',
 						hasFile: false,

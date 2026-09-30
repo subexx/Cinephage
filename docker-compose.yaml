@@ -26,6 +26,11 @@ services:
     ports:
       - '3000:3000'
     env_file: .env
+    logging:
+      driver: json-file
+      options:
+        max-size: '20m'
+        max-file: '5'
     volumes:
       - ./config:/config
       - /path/to/media:/media
