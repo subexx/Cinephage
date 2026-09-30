@@ -694,6 +694,8 @@ export const movies = sqliteTable(
 		added: text('added').$defaultFn(() => new Date().toISOString()),
 		// Cached: does this movie have a file?
 		hasFile: integer('has_file', { mode: 'boolean' }).default(false),
+		// Consecutive missing-content searches that returned no_results (stale-missing unmonitor)
+		failedContentSearchAttempts: integer('failed_content_search_attempts').default(0),
 		// Whether to search for subtitles for this movie
 		wantsSubtitles: integer('wants_subtitles', { mode: 'boolean' }).default(true),
 		// Last time this movie was searched for releases (ISO timestamp).
@@ -857,6 +859,8 @@ export const series = sqliteTable(
 		// Cached stats
 		episodeCount: integer('episode_count').default(0),
 		episodeFileCount: integer('episode_file_count').default(0),
+		// Consecutive missing-content searches with no_results while zero files (stale-missing unmonitor)
+		failedContentSearchAttempts: integer('failed_content_search_attempts').default(0),
 		// Whether to search for subtitles for this series (inherited by episodes by default)
 		wantsSubtitles: integer('wants_subtitles', { mode: 'boolean' }).default(true),
 		firstAirDate: text('first_air_date'),
@@ -1730,6 +1734,9 @@ export const monitoringSettings = sqliteTable('monitoring_settings', {
 // - 'cutoff_unmet_search_interval_hours': number - How often to search for cutoff unmet (default: 24)
 // - 'auto_replace_enabled': boolean - Auto-replace with better quality (default: true)
 // - 'search_on_monitor_enabled': boolean - Search when item first monitored (default: true)
+// - 'stale_missing_unmonitor_enabled': boolean - Auto-unmonitor stale missing items (default: true)
+// - 'stale_missing_min_age_days': number - Min days since added before unmonitor (default: 365)
+// - 'stale_missing_min_failed_searches': number - Min failed content searches before unmonitor (default: 5)
 
 // ============================================================================
 // CAPTCHA SOLVER SETTINGS

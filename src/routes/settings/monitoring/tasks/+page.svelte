@@ -5,18 +5,43 @@
 	import type { TaskHistoryEntry } from '$lib/types/task';
 	import TasksTable from '$lib/components/tasks/TasksTable.svelte';
 	import CreateTaskPlaceholder from '$lib/components/tasks/CreateTaskPlaceholder.svelte';
-	import { SettingsPage } from '$lib/components/ui/settings';
+	import { SettingsPage, SettingsSection } from '$lib/components/ui/settings';
 	import { Plus, XCircle, CheckCircle2 } from 'lucide-svelte';
 	import { createSSE } from '$lib/sse';
 	import { layoutState, deriveMobileSseStatus } from '$lib/layout.svelte';
 	import { cancelTask, setTaskEnabled, runTask } from '$lib/api/tasks.js';
 	import { apiPost } from '$lib/api/client.js';
+	import { updateMonitoringSettings } from '$lib/api/monitoring.js';
 
 	let { data }: { data: PageData } = $props();
 
 	let errorMessage = $state<string | null>(null);
 	let successMessage = $state<string | null>(null);
 	let showCreateModal = $state(false);
+
+	let staleEnabled = $state(data.staleMissingSettings.staleMissingUnmonitorEnabled);
+	let staleMinAgeDays = $state(data.staleMissingSettings.staleMissingMinAgeDays);
+	let staleMinFailed = $state(data.staleMissingSettings.staleMissingMinFailedSearches);
+	let staleSaving = $state(false);
+
+	async function saveStaleMissingSettings() {
+		staleSaving = true;
+		errorMessage = null;
+		try {
+			await updateMonitoringSettings({
+				staleMissingUnmonitorEnabled: staleEnabled,
+				staleMissingMinAgeDays: Number(staleMinAgeDays),
+				staleMissingMinFailedSearches: Number(staleMinFailed)
+			});
+			successMessage = 'Stale missing settings saved';
+			autoDismissSuccess();
+		} catch (err) {
+			errorMessage =
+				err instanceof Error ? err.message : 'Failed to save stale missing settings';
+		} finally {
+			staleSaving = false;
+		}
+	}
 
 	// --- Reactive local task state (seeded from server, updated by SSE) ---
 
@@ -322,6 +347,47 @@
 			>
 		</div>
 	{/if}
+
+	<SettingsSection
+		title="Stale Missing"
+		description="Auto-unmonitor movies and zero-file series that stay missing after repeated failed searches. Never deletes library entries."
+	>
+		<div class="flex flex-col gap-4">
+			<label class="label cursor-pointer justify-start gap-3">
+				<input type="checkbox" class="checkbox checkbox-sm" bind:checked={staleEnabled} />
+				<span class="label-text">Enable stale missing unmonitor</span>
+			</label>
+			<div class="grid gap-4 sm:grid-cols-2">
+				<label class="form-control w-full">
+					<span class="label-text mb-1">Min age (days)</span>
+					<input
+						type="number"
+						class="input input-bordered input-sm w-full"
+						min="1"
+						bind:value={staleMinAgeDays}
+					/>
+				</label>
+				<label class="form-control w-full">
+					<span class="label-text mb-1">Min failed searches</span>
+					<input
+						type="number"
+						class="input input-bordered input-sm w-full"
+						min="1"
+						bind:value={staleMinFailed}
+					/>
+				</label>
+			</div>
+			<div>
+				<button
+					class="btn btn-primary btn-sm"
+					disabled={staleSaving}
+					onclick={saveStaleMissingSettings}
+				>
+					{staleSaving ? 'Saving…' : 'Save'}
+				</button>
+			</div>
+		</div>
+	</SettingsSection>
 
 	<!-- Tasks Table -->
 	<TasksTable

@@ -159,8 +159,9 @@ import {
  * Version 152: Drop subtitle_settings (default profile lives on language_settings)
  * Version 153: Add desired_qualities to smart_lists
  * Version 154: Default movie 4K+1080p copies and English+Original language profile (v2)
+ * Version 155: Stale-missing unmonitor — failed_content_search_attempts on movies/series + settings
  */
-export const CURRENT_SCHEMA_VERSION = 154;
+export const CURRENT_SCHEMA_VERSION = 155;
 
 export const SYSTEM_LIBRARY_SEEDS = [
 	{
@@ -585,6 +586,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"minimum_availability" text DEFAULT 'released',
 		"added" text,
 		"has_file" integer DEFAULT false,
+		"failed_content_search_attempts" integer DEFAULT 0,
 		"wants_subtitles" integer DEFAULT true,
 		"last_search_time" text,
 		"tmdb_collection_id" integer,
@@ -646,6 +648,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"added" text,
 		"episode_count" integer DEFAULT 0,
 		"episode_file_count" integer DEFAULT 0,
+		"failed_content_search_attempts" integer DEFAULT 0,
 		"wants_subtitles" integer DEFAULT true,
 		"first_air_date" text,
 		"episode_group_id" text,

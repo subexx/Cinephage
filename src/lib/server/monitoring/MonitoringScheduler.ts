@@ -36,6 +36,7 @@ const DEFAULT_INTERVALS = {
 	subtitleUpgrade: 24, // Daily
 	smartListRefresh: 1, // Hourly (checks which smart lists are due based on their individual intervals)
 	historyCleanup: 24, // Daily
+	staleMissingUnmonitor: 24, // Daily
 	libraryReconcile: 6, // Every 6 hours
 	dbBackup: 24 // Daily
 } as const;
@@ -98,6 +99,10 @@ export interface MonitoringSettings {
 	stalledDownloadProgressThreshold: number;
 	// Blocklist duration (hours) for auto-removed stalled releases; 0 = permanent
 	stalledDownloadBlocklistHours: number;
+	// Stale-missing unmonitor (never auto-deletes; only unmonitors)
+	staleMissingUnmonitorEnabled: boolean;
+	staleMissingMinAgeDays: number;
+	staleMissingMinFailedSearches: number;
 }
 
 /**
@@ -125,6 +130,7 @@ export interface MonitoringStatus {
 		subtitleUpgrade: TaskStatus;
 		smartListRefresh: TaskStatus;
 		historyCleanup: TaskStatus;
+		staleMissingUnmonitor: TaskStatus;
 		libraryReconcile: TaskStatus;
 		dbBackup: TaskStatus;
 	};
@@ -205,6 +211,7 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 			'subtitleUpgrade',
 			'smartListRefresh',
 			'historyCleanup',
+			'staleMissingUnmonitor',
 			'dbBackup'
 		];
 		for (const taskType of taskTypes) {
@@ -326,6 +333,14 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 			),
 			stalledDownloadBlocklistHours: parseFloat(
 				settingsMap.get('stalled_download_blocklist_hours') || '72'
+			),
+			staleMissingUnmonitorEnabled:
+				settingsMap.get('stale_missing_unmonitor_enabled') !== 'false',
+			staleMissingMinAgeDays: parseFloat(
+				settingsMap.get('stale_missing_min_age_days') || '365'
+			),
+			staleMissingMinFailedSearches: parseFloat(
+				settingsMap.get('stale_missing_min_failed_searches') || '5'
 			)
 		};
 	}
@@ -410,6 +425,24 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 			updates.push({
 				key: 'stalled_download_blocklist_hours',
 				value: String(settings.stalledDownloadBlocklistHours)
+			});
+		}
+		if (settings.staleMissingUnmonitorEnabled !== undefined) {
+			updates.push({
+				key: 'stale_missing_unmonitor_enabled',
+				value: String(settings.staleMissingUnmonitorEnabled)
+			});
+		}
+		if (settings.staleMissingMinAgeDays !== undefined) {
+			updates.push({
+				key: 'stale_missing_min_age_days',
+				value: String(settings.staleMissingMinAgeDays)
+			});
+		}
+		if (settings.staleMissingMinFailedSearches !== undefined) {
+			updates.push({
+				key: 'stale_missing_min_failed_searches',
+				value: String(settings.staleMissingMinFailedSearches)
 			});
 		}
 
@@ -508,6 +541,9 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 		const historyCleanupInterval =
 			(await taskSettingsService.getTaskInterval('historyCleanup')) ??
 			DEFAULT_INTERVALS.historyCleanup;
+		const staleMissingUnmonitorInterval =
+			(await taskSettingsService.getTaskInterval('staleMissingUnmonitor')) ??
+			DEFAULT_INTERVALS.staleMissingUnmonitor;
 		const libraryReconcileInterval =
 			(await taskSettingsService.getTaskInterval('library-reconcile')) ??
 			DEFAULT_INTERVALS.libraryReconcile;
@@ -532,6 +568,10 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 			Math.max(smartListRefreshInterval, MIN_INTERVAL_HOURS)
 		);
 		this.taskIntervals.set('historyCleanup', Math.max(historyCleanupInterval, MIN_INTERVAL_HOURS));
+		this.taskIntervals.set(
+			'staleMissingUnmonitor',
+			Math.max(staleMissingUnmonitorInterval, MIN_INTERVAL_HOURS)
+		);
 		this.taskIntervals.set(
 			'library-reconcile',
 			Math.max(libraryReconcileInterval, MIN_INTERVAL_HOURS)
@@ -839,6 +879,15 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 				const { executeHistoryCleanupTask } = await import('./tasks/HistoryCleanupTask.js');
 				return await executeHistoryCleanupTask(ctx);
 			}
+			case 'staleMissingUnmonitor': {
+				const { executeStaleMissingUnmonitorTask } =
+					await import('./tasks/StaleMissingUnmonitorTask.js');
+				return await executeStaleMissingUnmonitorTask(ctx, {
+					staleMissingUnmonitorEnabled: settings.staleMissingUnmonitorEnabled,
+					staleMissingMinAgeDays: settings.staleMissingMinAgeDays,
+					staleMissingMinFailedSearches: settings.staleMissingMinFailedSearches
+				});
+			}
 			case 'dbBackup': {
 				const { executeDbBackupTask } = await import('./tasks/DbBackupTask.js');
 				return await executeDbBackupTask(ctx);
@@ -898,6 +947,10 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 
 	async runHistoryCleanup(): Promise<TaskResult> {
 		return await this.executeTaskManually('historyCleanup');
+	}
+
+	async runStaleMissingUnmonitor(): Promise<TaskResult> {
+		return await this.executeTaskManually('staleMissingUnmonitor');
 	}
 
 	async runDbBackup(): Promise<TaskResult> {
@@ -1080,6 +1133,10 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 					DEFAULT_INTERVALS.smartListRefresh
 				),
 				historyCleanup: await getTaskStatus('historyCleanup', DEFAULT_INTERVALS.historyCleanup),
+				staleMissingUnmonitor: await getTaskStatus(
+					'staleMissingUnmonitor',
+					DEFAULT_INTERVALS.staleMissingUnmonitor
+				),
 				libraryReconcile: await getTaskStatus(
 					'library-reconcile',
 					DEFAULT_INTERVALS.libraryReconcile

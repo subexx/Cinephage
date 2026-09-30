@@ -21,6 +21,7 @@ export const load: PageServerLoad = async ({ depends }) => {
 
 	// Get monitoring status for scheduled tasks
 	const monitoringStatus = await monitoringScheduler.getStatus();
+	const monitoringSettings = await monitoringScheduler.getSettings();
 
 	// Build unified task list with status
 	const tasks: UnifiedTask[] = await Promise.all(
@@ -78,6 +79,11 @@ export const load: PageServerLoad = async ({ depends }) => {
 
 	return {
 		tasks,
-		taskHistory
+		taskHistory,
+		staleMissingSettings: {
+			staleMissingUnmonitorEnabled: monitoringSettings.staleMissingUnmonitorEnabled,
+			staleMissingMinAgeDays: monitoringSettings.staleMissingMinAgeDays,
+			staleMissingMinFailedSearches: monitoringSettings.staleMissingMinFailedSearches
+		}
 	};
 };

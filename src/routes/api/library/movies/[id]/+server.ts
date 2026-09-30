@@ -254,6 +254,7 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 			languageProfileId: movies.languageProfileId,
 			subtitleRequirementsOverride: movies.subtitleRequirementsOverride,
 			hasFile: movies.hasFile,
+			monitored: movies.monitored,
 			metadataLanguageMode: movies.metadataLanguageMode,
 			metadataLanguageValue: movies.metadataLanguageValue
 		})
@@ -276,6 +277,10 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 
 	if (typeof monitored === 'boolean') {
 		updateData.monitored = monitored;
+		// Remonitor clears stale-missing failure counter so searches start fresh
+		if (monitored === true && currentMovie && !currentMovie.monitored) {
+			updateData.failedContentSearchAttempts = 0;
+		}
 	}
 	if (scoringProfileId !== undefined) {
 		updateData.scoringProfileId = scoringProfileId;

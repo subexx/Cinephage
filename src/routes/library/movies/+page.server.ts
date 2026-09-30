@@ -253,6 +253,8 @@ export const load: PageServerLoad = async ({ url }) => {
 			filteredMovies = filteredMovies.filter((m) => m.hasFile);
 		} else if (fileStatus === 'missingFile') {
 			filteredMovies = filteredMovies.filter((m) => !m.hasFile);
+		} else if (fileStatus === 'unmonitoredMissing') {
+			filteredMovies = filteredMovies.filter((m) => !m.hasFile && !m.monitored);
 		}
 
 		// Filter by quality profile (treat null as "uses resolved default profile")

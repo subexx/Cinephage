@@ -32,6 +32,8 @@ const DEFAULT_TASK_SETTINGS: Record<
 	missingSubtitles: { intervalHours: 6, minIntervalHours: 0.25, enabled: true },
 	subtitleUpgrade: { intervalHours: 24, minIntervalHours: 0.25, enabled: true },
 	smartListRefresh: { intervalHours: 1, minIntervalHours: 0.25, enabled: true },
+	historyCleanup: { intervalHours: 24, minIntervalHours: 1, enabled: true },
+	staleMissingUnmonitor: { intervalHours: 24, minIntervalHours: 1, enabled: true },
 	'library-scan': { intervalHours: null, minIntervalHours: 0.25, enabled: true },
 	'update-strm-urls': { intervalHours: null, minIntervalHours: 0.25, enabled: true },
 	'metadata-refresh': { intervalHours: null, minIntervalHours: 0.25, enabled: true },

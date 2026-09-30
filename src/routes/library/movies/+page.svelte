@@ -501,7 +501,8 @@
 			options: [
 				{ value: 'all', label: m.library_movies_filterAll() },
 				{ value: 'hasFile', label: m.library_movies_filterHasFile() },
-				{ value: 'missingFile', label: m.library_movies_filterMissingFile() }
+				{ value: 'missingFile', label: m.library_movies_filterMissingFile() },
+				{ value: 'unmonitoredMissing', label: 'Unmonitored missing' }
 			]
 		},
 		{

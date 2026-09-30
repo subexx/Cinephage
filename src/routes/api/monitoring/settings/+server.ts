@@ -29,7 +29,10 @@ export const GET: RequestHandler = async (event) => {
 				cutoffUnmetSearchIntervalHours: status.tasks.cutoffUnmet.intervalHours,
 				stalledDownloadTimeoutMinutes: fullSettings.stalledDownloadTimeoutMinutes,
 				stalledDownloadProgressThreshold: fullSettings.stalledDownloadProgressThreshold,
-				stalledDownloadBlocklistHours: fullSettings.stalledDownloadBlocklistHours
+				stalledDownloadBlocklistHours: fullSettings.stalledDownloadBlocklistHours,
+				staleMissingUnmonitorEnabled: fullSettings.staleMissingUnmonitorEnabled,
+				staleMissingMinAgeDays: fullSettings.staleMissingMinAgeDays,
+				staleMissingMinFailedSearches: fullSettings.staleMissingMinFailedSearches
 			},
 			status: {
 				tasks: status.tasks
@@ -93,7 +96,10 @@ export const PUT: RequestHandler = async (event) => {
 				cutoffUnmetSearchIntervalHours: status.tasks.cutoffUnmet.intervalHours,
 				stalledDownloadTimeoutMinutes: fullUpdatedSettings.stalledDownloadTimeoutMinutes,
 				stalledDownloadProgressThreshold: fullUpdatedSettings.stalledDownloadProgressThreshold,
-				stalledDownloadBlocklistHours: fullUpdatedSettings.stalledDownloadBlocklistHours
+				stalledDownloadBlocklistHours: fullUpdatedSettings.stalledDownloadBlocklistHours,
+				staleMissingUnmonitorEnabled: fullUpdatedSettings.staleMissingUnmonitorEnabled,
+				staleMissingMinAgeDays: fullUpdatedSettings.staleMissingMinAgeDays,
+				staleMissingMinFailedSearches: fullUpdatedSettings.staleMissingMinFailedSearches
 			},
 			status: {
 				tasks: status.tasks

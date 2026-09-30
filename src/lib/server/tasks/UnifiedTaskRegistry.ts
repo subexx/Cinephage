@@ -154,6 +154,18 @@ const SCHEDULED_TASKS: UnifiedTaskDefinition[] = [
 		intervalEditable: false
 	},
 	{
+		id: 'staleMissingUnmonitor',
+		name: 'Stale Missing Unmonitor',
+		description:
+			'Unmonitor movies and zero-file series that have been missing for a long time after repeated failed content searches (never deletes library entries)',
+		category: 'scheduled',
+		runEndpoint: '/api/monitoring/search/stale-missing-unmonitor',
+		intervalKey: 'stale_missing_unmonitor_interval_hours',
+		defaultIntervalHours: 24,
+		minIntervalHours: 1,
+		intervalEditable: false
+	},
+	{
 		id: 'dbBackup',
 		name: 'Database Backup',
 		description: 'Create a daily backup of the SQLite database to the backups/scheduled folder',

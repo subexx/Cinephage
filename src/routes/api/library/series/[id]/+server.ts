@@ -311,6 +311,10 @@ export const PATCH: RequestHandler = async ({ params, request }) => {
 
 		if (monitored !== undefined) {
 			updateData.monitored = monitored;
+			// Remonitor clears stale-missing failure counter so searches start fresh
+			if (wasUnmonitored && monitored === true) {
+				updateData.failedContentSearchAttempts = 0;
+			}
 		}
 		if (scoringProfileId !== undefined) {
 			updateData.scoringProfileId = scoringProfileId;

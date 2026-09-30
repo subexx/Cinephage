@@ -36,7 +36,10 @@ const settings: MonitoringSettings = {
 	subtitleSearchTrigger: 'immediate',
 	stalledDownloadTimeoutMinutes: 60,
 	stalledDownloadProgressThreshold: 0,
-	stalledDownloadBlocklistHours: 72
+	stalledDownloadBlocklistHours: 72,
+	staleMissingUnmonitorEnabled: true,
+	staleMissingMinAgeDays: 365,
+	staleMissingMinFailedSearches: 5
 };
 
 const baseResult = {

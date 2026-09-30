@@ -640,6 +640,10 @@ export const MIGRATION_COLUMN_MAP: Record<number, Array<{ table: string; column:
 		{ table: 'movies', column: 'language_shortfall' },
 		{ table: 'series', column: 'language_shortfall' }
 	],
+	155: [
+		{ table: 'movies', column: 'failed_content_search_attempts' },
+		{ table: 'series', column: 'failed_content_search_attempts' }
+	],
 	151: [
 		{ table: 'episodes', column: 'wants_subtitles_override' },
 		{ table: 'movies', column: 'language_profile_id' },

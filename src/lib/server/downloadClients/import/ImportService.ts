@@ -1335,8 +1335,11 @@ export class ImportService extends EventEmitter {
 			await db.insert(movieFiles).values({ id: fileId, ...fileData });
 		}
 
-		// Update movie hasFile flag
-		await db.update(movies).set({ hasFile: true }).where(eq(movies.id, movie.id));
+		// Update movie hasFile flag and clear stale-missing failure counter
+		await db
+			.update(movies)
+			.set({ hasFile: true, failedContentSearchAttempts: 0 })
+			.where(eq(movies.id, movie.id));
 
 		// Audio-language verification (phase D): compare probed audio against
 		// the effective preference and maintain the shortfall flag.
@@ -2194,6 +2197,12 @@ export class ImportService extends EventEmitter {
 		for (const episodeId of episodeIds) {
 			await db.update(episodes).set({ hasFile: true }).where(eq(episodes.id, episodeId));
 		}
+
+		// Reset series stale-missing counter whenever any episode gets a file
+		await db
+			.update(series)
+			.set({ failedContentSearchAttempts: 0 })
+			.where(eq(series.id, seriesData.id));
 
 		// Audio-language verification (phase D): episode files carry the
 		// evidence; the flag lives on the owning series.
