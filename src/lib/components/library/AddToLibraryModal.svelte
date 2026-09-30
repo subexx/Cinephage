@@ -7,6 +7,7 @@
 	import { isLikelyAnimeMedia } from '$lib/shared/anime-classification.js';
 	import type { RootFolderWithSpaceAndDefault as RootFolder } from '$lib/types/downloadClient.js';
 	import type { DesiredQuality } from '$lib/types/library.js';
+	import { DEFAULT_MOVIE_DESIRED_QUALITIES } from '$lib/shared/movie-desired-qualities.js';
 	import type { MinimumAvailability } from './add/MovieAddOptions.svelte';
 	import type { MonitorType, MonitorNewItems, SeriesType } from './add/SeriesAddOptions.svelte';
 	import AddMovieForm from './AddMovieForm.svelte';
@@ -139,7 +140,7 @@
 	let minimumAvailability = $state<MinimumAvailability>('released');
 	let availabilityDelay = $state(0);
 	let monitored = $state(true);
-	let desiredQualities = $state<DesiredQuality[]>([]);
+	let desiredQualities = $state<DesiredQuality[]>([...DEFAULT_MOVIE_DESIRED_QUALITIES]);
 
 	let monitorType = $state<MonitorType>('all');
 	let monitorNewItems = $state<MonitorNewItems>('all');
@@ -221,7 +222,7 @@
 			subtitleRequirementsOverride = null;
 			minimumAvailability = 'released';
 			availabilityDelay = 0;
-			desiredQualities = [];
+			desiredQualities = [...DEFAULT_MOVIE_DESIRED_QUALITIES];
 			monitorType = 'all';
 			monitorNewItems = 'all';
 			monitorSpecials = false;

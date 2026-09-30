@@ -28,6 +28,7 @@ import { resolveLocalizedTitlesForFormats } from '$lib/server/library/naming/loc
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents.js';
 import { createChildLogger } from '$lib/logging';
+import { ENGLISH_ORIGINAL_PROFILE_ID } from '$lib/shared/preferred-language.js';
 
 const logger = createChildLogger({ module: 'LibrarySeriesApi', logDomain: 'scans' });
 
@@ -255,7 +256,6 @@ export const POST: RequestHandler = async (event) => {
 				tvdbId,
 				imdbId,
 				title: tvDetails.name,
-				originalLanguage: tvDetails.original_language,
 				originalTitle: tvDetails.original_name,
 				year,
 				overview: tvDetails.overview,
@@ -268,6 +268,7 @@ export const POST: RequestHandler = async (event) => {
 				libraryId: owningLibrary.id,
 				rootFolderId,
 				scoringProfileId: effectiveProfileId,
+				originalLanguage: tvDetails.original_language ?? null,
 				monitored,
 				monitorNewItems,
 				monitorSpecials,
@@ -276,7 +277,8 @@ export const POST: RequestHandler = async (event) => {
 				episodeCount: totalEpisodes,
 				episodeFileCount: 0,
 				wantsSubtitles,
-				languageProfileId: languageProfileId ?? null,
+				languageProfileId:
+					languageProfileId ?? (wantsSubtitles ? ENGLISH_ORIGINAL_PROFILE_ID : null),
 				subtitleRequirementsOverride: subtitleRequirementsOverride ?? null,
 				episodeGroupId
 			})

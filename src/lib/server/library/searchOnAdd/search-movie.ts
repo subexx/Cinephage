@@ -8,7 +8,9 @@ import {
 	effectiveBuckets,
 	getFilledResolutions,
 	unfilledBuckets,
-	isMultiQualityMode
+	isMultiQualityMode,
+	isBelowDesiredFallback,
+	shouldGrabBelowDesiredFallback
 } from '$lib/server/quality/buckets.js';
 import type { Resolution } from '$lib/server/indexers/parser/types.js';
 import type { SearchCriteria, EnhancedReleaseResult } from '$lib/server/indexers/types';
@@ -16,6 +18,7 @@ import { AUTO_GRAB_MIN_SCORE } from './search-utils.js';
 import type { AltTitleRefresher } from './alt-titles.js';
 import type { SearchForMovieParams, GrabResult } from './types.js';
 import { createChildLogger } from '$lib/logging/index.js';
+import { orderReleasesByPreferredAudio } from '$lib/shared/preferred-language.js';
 
 const logger = createChildLogger({ module: 'SearchMovie', logDomain: 'scans' });
 
@@ -74,7 +77,7 @@ export async function searchForMovie(
 
 		const movieRow = await db.query.movies.findFirst({
 			where: eq(movies.id, movieId),
-			columns: { desiredQualities: true, scoringProfileId: true }
+			columns: { desiredQualities: true, scoringProfileId: true, originalLanguage: true }
 		});
 		const profileRow = movieRow?.scoringProfileId
 			? await db.query.scoringProfiles.findFirst({
@@ -154,6 +157,11 @@ export async function searchForMovie(
 			'[SearchOnAdd] Movie search completed'
 		);
 
+		const rankedReleases = orderReleasesByPreferredAudio(
+			searchResult.releases,
+			movieRow?.originalLanguage
+		);
+
 		// Log the top releases for debugging
 		if (searchResult.releases.length > 0) {
 			const topReleases = searchResult.releases.slice(0, 5).map((r) => ({
@@ -167,7 +175,7 @@ export async function searchForMovie(
 			logger.info({ movieId, topReleases }, '[SearchOnAdd] Top 5 releases by score');
 		}
 
-		if (searchResult.releases.length === 0) {
+		if (rankedReleases.length === 0) {
 			logger.info({ movieId, title }, '[SearchOnAdd] No suitable releases found for movie');
 			onProgress?.('complete', 'No suitable releases found', { current: 100, total: 100 });
 			return { success: false, error: 'No suitable releases found' };
@@ -187,7 +195,7 @@ export async function searchForMovie(
 			logger.info({ movieId }, '[SearchOnAdd] Movie has existing file, checking for upgrades');
 			onProgress?.('evaluating', 'Checking for upgrade releases...', { current: 60, total: 100 });
 
-			for (const release of searchResult.releases) {
+			for (const release of rankedReleases) {
 				onProgress?.('grabbing', `Grabbing: ${release.title.substring(0, 50)}...`, {
 					current: 85,
 					total: 100
@@ -238,7 +246,7 @@ export async function searchForMovie(
 			: [];
 		let lastGrab: GrabResult | null = null;
 
-		for (const release of searchResult.releases) {
+		for (const release of rankedReleases) {
 			const res = release.parsed?.resolution as Resolution | undefined;
 			if (multiQuality && (!res || !effective.includes(res) || alreadyGrabbed.includes(res))) {
 				continue;
@@ -270,6 +278,25 @@ export async function searchForMovie(
 				error: grabResult.error ?? grabResult.decision?.reason ?? 'Unknown error'
 			};
 			if (!multiQuality) break;
+		}
+
+		if (
+			shouldGrabBelowDesiredFallback(effective, alreadyGrabbed, hasExistingFile) &&
+			lastGrab?.success !== true
+		) {
+			for (const release of rankedReleases) {
+				const res = release.parsed?.resolution as Resolution | undefined;
+				if (!isBelowDesiredFallback(res, effective)) continue;
+				const grabResult = await grabRelease(release, movieId, false);
+				if (grabResult.success) {
+					lastGrab = {
+						success: true,
+						releaseName: release.title,
+						queueItemId: grabResult.download?.queueId
+					};
+					break;
+				}
+			}
 		}
 
 		if (lastGrab?.success) {

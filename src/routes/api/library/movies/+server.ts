@@ -24,6 +24,8 @@ import { fetchAndStoreMovieAlternateTitles } from '$lib/server/services/Alternat
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { ValidationError, isAppError } from '$lib/errors';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents.js';
+import { movieDesiredQualitiesOrDefault } from '$lib/shared/movie-desired-qualities.js';
+import { ENGLISH_ORIGINAL_PROFILE_ID } from '$lib/shared/preferred-language.js';
 import { requireAuth } from '$lib/server/auth/authorization.js';
 import { createChildLogger } from '$lib/logging';
 
@@ -246,7 +248,6 @@ export const POST: RequestHandler = async (event) => {
 				tmdbId,
 				imdbId,
 				title: movieDetails.title,
-				originalLanguage: movieDetails.original_language,
 				originalTitle: movieDetails.original_title,
 				year,
 				overview: movieDetails.overview,
@@ -258,13 +259,15 @@ export const POST: RequestHandler = async (event) => {
 				libraryId: owningLibrary.id,
 				rootFolderId,
 				scoringProfileId: effectiveProfileId,
-				desiredQualities: desiredQualities ?? null,
+				desiredQualities: movieDesiredQualitiesOrDefault(desiredQualities),
+				originalLanguage: movieDetails.original_language ?? null,
 				monitored,
 				minimumAvailability,
 				availabilityDelay,
 				hasFile: false,
 				wantsSubtitles,
-				languageProfileId: languageProfileId ?? null,
+				languageProfileId:
+					languageProfileId ?? (wantsSubtitles ? ENGLISH_ORIGINAL_PROFILE_ID : null),
 				subtitleRequirementsOverride: subtitleRequirementsOverride ?? null,
 				tmdbCollectionId: collectionData?.id ?? null,
 				collectionName: collectionData?.name ?? null,

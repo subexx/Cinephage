@@ -24,6 +24,8 @@ import { isLikelyAnimeMedia } from '$lib/shared/anime-classification.js';
 import { fetchAndStoreMovieAlternateTitles } from '$lib/server/services/AlternateTitleService.js';
 import { getLibraryEntityService } from '$lib/server/library/LibraryEntityService.js';
 import { libraryMediaEvents } from '$lib/server/library/LibraryMediaEvents.js';
+import { movieDesiredQualitiesOrDefault } from '$lib/shared/movie-desired-qualities.js';
+import { ENGLISH_ORIGINAL_PROFILE_ID } from '$lib/shared/preferred-language.js';
 import { createChildLogger } from '$lib/logging';
 
 const logger = createChildLogger({ module: 'LibraryCollectionsTrackApi', logDomain: 'scans' });
@@ -155,7 +157,6 @@ export const POST: RequestHandler = async (event) => {
 					tmdbId: part.id,
 					imdbId,
 					title: movieDetails.title,
-					originalLanguage: movieDetails.original_language,
 					originalTitle: movieDetails.original_title,
 					year,
 					overview: movieDetails.overview,
@@ -167,11 +168,14 @@ export const POST: RequestHandler = async (event) => {
 					libraryId: owningLibrary.id,
 					rootFolderId,
 					scoringProfileId: effectiveProfileId,
+					desiredQualities: movieDesiredQualitiesOrDefault(null),
+					originalLanguage: movieDetails.original_language ?? null,
 					monitored,
 					minimumAvailability: 'released',
 					availabilityDelay: 0,
 					hasFile: false,
 					wantsSubtitles: true,
+					languageProfileId: ENGLISH_ORIGINAL_PROFILE_ID,
 					tmdbCollectionId: collectionData?.id ?? tmdbCollectionId,
 					collectionName: collectionData?.name ?? collection.name,
 					releaseDate: movieDetails.release_date ?? null

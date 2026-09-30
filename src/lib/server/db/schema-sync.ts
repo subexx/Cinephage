@@ -151,11 +151,16 @@ import {
  * Version 144: Add language_settings.prefer_original_title instance default (boolean, default 0)
  * Version 145: Drop deprecated per-item adaptive subtitle columns (movies/episodes failed_subtitle_attempts, first_subtitle_search_at)
  * Version 146: Per-item subtitle requirement overrides on movies/series/episodes + inheritance repair
+ * Version 147: Language shortfall flag on movies/episodes
  * Version 148: Acquisition intents + reservations — durable acquisition authority and slot exclusivity
  * Version 149: Import operations journal — durable multi-step import record for recovery and reports
  * Version 150: movie_files (movie_id, relative_path) unique index (legacy duplicates deduped)
+ * Version 151: Language system column guards
+ * Version 152: Drop subtitle_settings (default profile lives on language_settings)
+ * Version 153: Add desired_qualities to smart_lists
+ * Version 154: Default movie 4K+1080p copies and English+Original language profile (v2)
  */
-export const CURRENT_SCHEMA_VERSION = 152;
+export const CURRENT_SCHEMA_VERSION = 154;
 
 export const SYSTEM_LIBRARY_SEEDS = [
 	{
@@ -573,6 +578,7 @@ const TABLE_DEFINITIONS: string[] = [
 		"root_folder_id" text REFERENCES "root_folders"("id") ON DELETE SET NULL,
 		"scoring_profile_id" text REFERENCES "scoring_profiles"("id") ON DELETE SET NULL,
 		"desired_qualities" text,
+		"original_language" text,
 		"language_profile_id" text,
 		"subtitle_requirements_override" text,
 		"monitored" integer DEFAULT true,

@@ -115,6 +115,34 @@ describe('UpgradeStage', () => {
 			expect(ctx.computed.upgradeStatus).toBe('downgrade');
 		});
 
+		it('accepts an English release as an upgrade over original-language audio', async () => {
+			const existing: ExistingFile = {
+				id: 'f1',
+				relativePath: '/movies/movie.1080p.mkv',
+				sceneName: 'Movie.2024.1080p.WEB-DL.Japanese',
+				quality: { resolution: '1080p' }
+			};
+			mockIsUpgrade.mockReturnValue({
+				isUpgrade: false,
+				improvement: -20,
+				existing: { totalScore: 300 },
+				candidate: { totalScore: 280 }
+			});
+			const ctx = makeGrabDecisionContext({
+				existingFiles: [existing],
+				originalLanguage: 'ja',
+				release: {
+					title: 'Movie.2024.1080p.WEB-DL.English',
+					protocol: 'torrent'
+				},
+				computed: { scoringResult: { resolution: '1080p' } as never }
+			});
+			const result = await stage.evaluate(ctx);
+			expect(result.accepted).toBe(true);
+			expect(ctx.computed.upgradeStatus).toBe('upgrade');
+			expect(result.details?.languageUpgrade).toBe(true);
+		});
+
 		it('sets sidegrade when improvement is 0', async () => {
 			const existing: ExistingFile = { id: 'f1', relativePath: '/movies/movie.mkv' };
 			mockIsUpgrade.mockReturnValue({

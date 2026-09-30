@@ -10,6 +10,8 @@ import type { IndexerCapabilities, IndexerConfig } from '$lib/server/indexers/ty
 
 export const AUTO_GRAB_MIN_SCORE = 0;
 
+export { orderReleasesByPreferredAudio } from '$lib/shared/preferred-language.js';
+
 export function isRuTrackerIndexerName(indexerName: string | undefined): boolean {
 	if (typeof indexerName !== 'string') return false;
 	const normalized = indexerName.toLowerCase();

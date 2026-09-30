@@ -9,6 +9,8 @@ import {
 	fileIdsToReplace,
 	replaceIdsForImport,
 	redundantFileIds,
+	isBelowDesiredFallback,
+	shouldGrabBelowDesiredFallback,
 	MULTI_QUALITY_MIN_BUCKETS,
 	type BucketFile
 } from './buckets.js';
@@ -210,6 +212,42 @@ describe('replaceIdsForImport', () => {
 		expect(
 			replaceIdsForImport(files, { newResolution: '2160p', multiQuality: false, isUpgrade: false })
 		).toEqual([]);
+	});
+
+	it('replaces below-tier stand-in files when the lowest desired bucket arrives', () => {
+		expect(
+			replaceIdsForImport(files, {
+				newResolution: '1080p',
+				multiQuality: true,
+				isUpgrade: false,
+				effective: ['2160p', '1080p']
+			}).sort()
+		).toEqual(['1080', '720']);
+	});
+
+	it('keeps a below-tier stand-in when only a higher desired bucket arrives', () => {
+		expect(
+			replaceIdsForImport(files, {
+				newResolution: '2160p',
+				multiQuality: true,
+				isUpgrade: false,
+				effective: ['2160p', '1080p']
+			})
+		).toEqual(['4k']);
+	});
+});
+
+describe('below-desired fallback', () => {
+	it('identifies resolutions below the lowest desired bucket', () => {
+		expect(isBelowDesiredFallback('720p', ['2160p', '1080p'])).toBe(true);
+		expect(isBelowDesiredFallback('1080p', ['2160p', '1080p'])).toBe(false);
+		expect(isBelowDesiredFallback('2160p', ['2160p', '1080p'])).toBe(false);
+	});
+
+	it('only grabs a stand-in when there is no file and no desired copy', () => {
+		expect(shouldGrabBelowDesiredFallback(['2160p', '1080p'], [], false)).toBe(true);
+		expect(shouldGrabBelowDesiredFallback(['2160p', '1080p'], ['1080p'], false)).toBe(false);
+		expect(shouldGrabBelowDesiredFallback(['2160p', '1080p'], [], true)).toBe(false);
 	});
 });
 

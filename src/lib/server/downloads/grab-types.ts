@@ -59,6 +59,8 @@ export interface ResolvedContext {
 	desiredQualities?: Resolution[];
 	/** Identity facts for the hard IdentityStage. */
 	targetInfo?: TargetIdentityInfo;
+	/** TMDB original language for English-then-original audio. */
+	originalLanguage?: string | null;
 }
 
 export interface HandlerResult {

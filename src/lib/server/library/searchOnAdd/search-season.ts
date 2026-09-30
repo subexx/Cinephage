@@ -7,7 +7,7 @@ import type { SearchCriteria } from '$lib/server/indexers/types';
 import { grabService } from '$lib/server/downloads/GrabService.js';
 import type { SearchForSeasonParams, GrabResult } from './types.js';
 import type { AltTitleRefresher } from './alt-titles.js';
-import { AUTO_GRAB_MIN_SCORE } from './search-utils.js';
+import { AUTO_GRAB_MIN_SCORE, orderReleasesByPreferredAudio } from './search-utils.js';
 import { createChildLogger } from '$lib/logging/index.js';
 
 const logger = createChildLogger({ module: 'SearchSeason', logDomain: 'scans' });
@@ -116,7 +116,12 @@ export async function searchForSeason(
 			return { success: false, error: 'No suitable releases found' };
 		}
 
-		for (const release of searchResult.releases) {
+		const rankedReleases = orderReleasesByPreferredAudio(
+			searchResult.releases,
+			seriesData.originalLanguage
+		);
+
+		for (const release of rankedReleases) {
 			const grabResult = await grabService.grab({
 				release: {
 					title: release.title,

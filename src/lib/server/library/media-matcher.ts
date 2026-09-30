@@ -26,7 +26,8 @@ import { basename, dirname, extname, join, relative } from 'path';
 import { RootFolderConflictError } from '$lib/errors';
 import { searchSubtitlesForNewMedia } from '$lib/server/subtitles/services/SubtitleImportService.js';
 import { monitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler.js';
-import { logger, createChildLogger } from '$lib/logging/index.js';
+import { movieDesiredQualitiesOrDefault } from '$lib/shared/movie-desired-qualities.js';
+import { ENGLISH_ORIGINAL_PROFILE_ID } from '$lib/shared/preferred-language.js';
 import { parseRelease, extractExternalIds } from '$lib/server/indexers/parser/ReleaseParser.js';
 import { getMediaParseStem } from './media-utils.js';
 import { resolveTvEpisodeIdentifier, extractSeasonFromPath } from './tv-episode-resolver.js';
@@ -1044,6 +1045,8 @@ export class MediaMatcherService {
 					hasFile: true,
 					monitored: rootFolder.defaultMonitored ?? true,
 					scoringProfileId: owningLibrary.qualityProfileId,
+					desiredQualities: movieDesiredQualitiesOrDefault(null),
+					languageProfileId: wantsSubtitles ? ENGLISH_ORIGINAL_PROFILE_ID : null,
 					wantsSubtitles
 				})
 				.onConflictDoNothing()
@@ -1200,6 +1203,7 @@ export class MediaMatcherService {
 					seriesType: rootFolder.mediaSubType === 'anime' || animeSignal ? 'anime' : 'standard',
 					monitored: rootFolder.defaultMonitored ?? true,
 					scoringProfileId: owningLibrary.qualityProfileId,
+					languageProfileId: wantsSubtitles ? ENGLISH_ORIGINAL_PROFILE_ID : null,
 					wantsSubtitles
 				})
 				.onConflictDoNothing()
