@@ -3366,7 +3366,10 @@ export class MonitoringSearchService {
 			with: { scoringProfile: true }
 		});
 		if (!movie?.monitored) {
-			logger.info({ movieId }, '[MonitoringSearch] Replacement search skipped — movie not monitored');
+			logger.info(
+				{ movieId },
+				'[MonitoringSearch] Replacement search skipped — movie not monitored'
+			);
 			return null;
 		}
 		if (movie.hasFile) {

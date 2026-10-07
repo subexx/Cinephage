@@ -97,7 +97,9 @@ describe('ImportService interrupted importing recovery', () => {
 
 		const service = ImportService.getInstance();
 		// Avoid actually queuing a real import (no media/files in test DB)
-		const requestImport = vi.spyOn(service, 'requestImport').mockResolvedValue({ status: 'queued' });
+		const requestImport = vi
+			.spyOn(service, 'requestImport')
+			.mockResolvedValue({ status: 'queued' });
 
 		await service.recoverInterruptedImports();
 
