@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { createTestDb, destroyTestDb, clearTestDb } from '../../../../test/db-helper';
-import { downloadClients, downloadQueue } from '$lib/server/db/schema';
+import { downloadClients, downloadQueue, movies } from '$lib/server/db/schema';
 
 const testDb = createTestDb();
 
@@ -42,6 +42,15 @@ vi.mock('$lib/server/db/index.js', () => ({
 const addToBlocklist = vi.fn().mockResolvedValue(undefined);
 vi.mock('$lib/server/monitoring/specifications/BlocklistSpecification.js', () => ({
 	blocklistService: { addToBlocklist }
+}));
+
+const searchReplacementForMovie = vi.fn().mockResolvedValue({ grabbed: false, releasesFound: 0 });
+const searchReplacementForEpisodes = vi.fn().mockResolvedValue([]);
+vi.mock('$lib/server/monitoring/search/MonitoringSearchService.js', () => ({
+	monitoringSearchService: {
+		searchReplacementForMovie,
+		searchReplacementForEpisodes
+	}
 }));
 
 const removeDownload = vi.fn().mockResolvedValue(undefined);
@@ -100,6 +109,8 @@ beforeEach(async () => {
 	clearTestDb(testDb);
 	removeDownload.mockClear();
 	addToBlocklist.mockClear();
+	searchReplacementForMovie.mockClear();
+	searchReplacementForEpisodes.mockClear();
 	await testDb.db.insert(downloadClients).values({
 		id: CLIENT_ID,
 		name: 'qbit',
@@ -165,5 +176,44 @@ describe('two-tier stalled download policy', () => {
 
 		const updated = await getRow(row.id);
 		expect(updated?.status).toBe('failed');
+	});
+
+	it('triggers an immediate replacement search after blocklisting a stalled release', async () => {
+		const movieId = randomUUID();
+		const id = randomUUID();
+		await testDb.db.insert(movies).values({
+			id: movieId,
+			tmdbId: 999001,
+			title: 'Stalled Movie',
+			path: 'Stalled Movie (2026)',
+			monitored: true,
+			hasFile: false
+		});
+		await testDb.db.insert(downloadQueue).values({
+			id,
+			downloadClientId: CLIENT_ID,
+			downloadId: `hash-${id}`,
+			infoHash: `info-${id}`,
+			title: `Test.Stalled.${id}`,
+			protocol: 'torrent',
+			status: 'stalled',
+			progress: '0',
+			movieId,
+			stalledSince: new Date(Date.now() - THREE_DAYS_MS - 60 * 60_000).toISOString(),
+			addedAt: new Date(Date.now() - THREE_DAYS_MS - 2 * 60 * 60_000).toISOString(),
+			lastAttemptAt: new Date().toISOString()
+		});
+
+		await runStalledHandler();
+
+		// Fire-and-forget; allow the microtask to run
+		await vi.waitFor(() => {
+			expect(searchReplacementForMovie).toHaveBeenCalledWith(movieId);
+		});
+
+		const updated = await getRow(id);
+		expect(updated?.status).toBe('failed');
+		// Cleared so the 1h failed-grab block does not suppress the replacement search
+		expect(updated?.lastAttemptAt).toBeNull();
 	});
 });

@@ -49,9 +49,11 @@ function mapQueueStatus(status: string): UnifiedActivity['status'] {
 		case 'removed':
 			return 'removed';
 		case 'completed':
+			// Download finished; import has not started (or was reset for retry).
+			return 'completed';
 		case 'postprocessing':
 		case 'importing':
-			// Transfer finished; the item is in the import pipeline, not still downloading.
+			// Actively unpacking / transferring into the library.
 			return 'importing';
 		case 'awaiting':
 			// Download vanished from client; recovering in the poll loop.
@@ -106,6 +108,13 @@ function buildQueueTimeline(
 	}
 	if (download.completedAt) {
 		timeline.push({ type: 'completed', timestamp: download.completedAt });
+	}
+	if (download.status === 'importing' && download.lastAttemptAt) {
+		timeline.push({
+			type: 'importing',
+			timestamp: download.lastAttemptAt,
+			details: download.errorMessage ?? undefined
+		});
 	}
 	if (
 		(download.status === 'imported' || download.status === 'seeding-imported') &&

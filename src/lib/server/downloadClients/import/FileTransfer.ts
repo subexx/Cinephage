@@ -41,14 +41,53 @@ import {
 const logger = createChildLogger({ logDomain: 'imports' as const });
 
 /**
+ * Max time for a single file copy/stream transfer before we abort.
+ * Prevents NAS / network mounts from wedging imports forever.
+ * Override with FILE_TRANSFER_TIMEOUT_MS.
+ */
+export const DEFAULT_FILE_TRANSFER_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+
+function getFileTransferTimeoutMs(): number {
+	const envValue = process.env.FILE_TRANSFER_TIMEOUT_MS;
+	if (!envValue) return DEFAULT_FILE_TRANSFER_TIMEOUT_MS;
+	const parsed = Number(envValue);
+	if (!Number.isFinite(parsed) || parsed < 60_000) return DEFAULT_FILE_TRANSFER_TIMEOUT_MS;
+	return Math.round(parsed);
+}
+
+/**
  * Copy a file without preserving the source mode bits. Node's built-in
  * copyFile performs an implicit fchmod on the destination after the data copy,
  * which fails with EPERM on filesystems without per-file permission bits
  * (exfat, FAT). A plain stream copy never chmods, so it succeeds everywhere;
  * permission handling is owned by applyFilePermissions where requested.
+ *
+ * Aborts after {@link getFileTransferTimeoutMs} so hung network I/O fails
+ * cleanly instead of leaving the queue stuck on "importing".
  */
 async function copyFileNoChmod(source: string, dest: string): Promise<void> {
-	await pipeline(createReadStream(source), createWriteStream(dest));
+	const timeoutMs = getFileTransferTimeoutMs();
+	const readStream = createReadStream(source);
+	const writeStream = createWriteStream(dest);
+
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			readStream.destroy();
+			writeStream.destroy();
+			reject(
+				new Error(
+					`File copy timed out after ${Math.round(timeoutMs / 60000)} minutes (source may be on a slow or stalled mount)`
+				)
+			);
+		}, timeoutMs);
+	});
+
+	try {
+		await Promise.race([pipeline(readStream, writeStream), timeoutPromise]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
 }
 
 /**

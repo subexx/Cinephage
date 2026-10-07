@@ -35,6 +35,9 @@ export const statusConfig: Record<
 	get downloading() {
 		return { label: m.status_downloading(), variant: 'badge-info', icon: Loader2 };
 	},
+	get completed() {
+		return { label: m.status_awaitingImport(), variant: 'badge-info', icon: Loader2 };
+	},
 	get importing() {
 		return { label: m.status_importing(), variant: 'badge-info', icon: Loader2 };
 	},
@@ -108,6 +111,16 @@ export function supportsQueuePauseResume(activity: Pick<UnifiedActivity, 'protoc
  */
 export function getCompactProgressLabel(activity: UnifiedActivity): string | null {
 	if (!activity.statusReason) {
+		if (activity.status === 'completed' && activity.completedAt) {
+			return m.activity_awaitingImportSince({
+				time: formatRelativeTime(activity.completedAt)
+			});
+		}
+		if (activity.status === 'importing' && activity.lastAttemptAt) {
+			return m.activity_importingSince({
+				time: formatRelativeTime(activity.lastAttemptAt)
+			});
+		}
 		return null;
 	}
 

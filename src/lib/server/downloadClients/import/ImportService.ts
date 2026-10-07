@@ -28,7 +28,7 @@ import {
 	importFailures,
 	importOperations
 } from '$lib/server/db/schema';
-import { eq, and, or, inArray, gte } from 'drizzle-orm';
+import { eq, and, or, inArray, gte, lte, isNull } from 'drizzle-orm';
 import { downloadMonitor } from '../monitoring/DownloadMonitorService';
 import { resolveMovieMultiQuality } from '$lib/server/quality/movie-buckets.js';
 import { computeMovieReplacement, computeEpisodeReplacement } from './replacement.js';
@@ -230,6 +230,15 @@ const MAX_IMPORT_ATTEMPTS = 10;
 const IMPORT_RETRY_DELAY_MS = 30_000; // 30 seconds between retries
 
 /**
+ * Runtime stuck-import detection. On process start we recover every
+ * `importing` row immediately (in-memory work is gone). During a live run,
+ * rows stuck in `importing` longer than this are reset and retried.
+ * Kept above the file-transfer timeout so a slow-but-alive copy is not
+ * reset mid-flight; this catches hangs outside the copy path (scan, probe).
+ */
+export const STALE_IMPORTING_MS = 75 * 60 * 1000; // 75 minutes
+
+/**
  * Pending import info for retry tracking
  */
 interface PendingImportInfo {
@@ -312,8 +321,17 @@ export class ImportService extends EventEmitter {
 			}, IMPORT_RETRY_DELAY_MS);
 		}
 
-		// Check for any completed items that weren't imported (from previous runs)
-		this.checkPendingImports();
+		// Recover imports interrupted by a restart (status left as 'importing')
+		// before picking up completed-but-not-imported rows.
+		this.recoverInterruptedImports()
+			.then(() => this.checkPendingImports())
+			.catch((err) => {
+				logger.warn(
+					{ error: err instanceof Error ? err.message : String(err) },
+					'Error recovering interrupted imports on startup'
+				);
+				return this.checkPendingImports();
+			});
 
 		// Reconcile the import-operations journal (migration 149): finish or
 		// flag interrupted imports so recovery is deterministic, never
@@ -713,9 +731,131 @@ export class ImportService extends EventEmitter {
 	}
 
 	/**
+	 * Transfer timeouts are usually mount/network flakes, not bad releases —
+	 * leave the item completed and retry instead of failing terminally.
+	 */
+	private async handleTransferFailure(queueItemId: string, errorMessage: string): Promise<void> {
+		const isTimeout = /timed out/i.test(errorMessage);
+		if (isTimeout) {
+			await db
+				.update(downloadQueue)
+				.set({
+					status: 'completed',
+					errorMessage
+				})
+				.where(eq(downloadQueue.id, queueItemId));
+			this.trackPendingImport(queueItemId, errorMessage);
+			logger.warn({ queueItemId, errorMessage }, 'Transfer timed out — will retry import');
+			return;
+		}
+		await downloadMonitor.markFailed(queueItemId, errorMessage);
+	}
+
+	/**
+	 * Reset queue rows left in `importing` after a crash/restart and re-queue them.
+	 * On startup every `importing` row is orphaned (in-memory work is gone).
+	 */
+	async recoverInterruptedImports(): Promise<void> {
+		const stuck = await db
+			.select()
+			.from(downloadQueue)
+			.where(eq(downloadQueue.status, 'importing'));
+
+		if (stuck.length === 0) return;
+
+		logger.warn(
+			{ count: stuck.length },
+			'Recovering imports interrupted while status was importing'
+		);
+
+		for (const item of stuck) {
+			await this.resetImportingForRetry(
+				item.id,
+				'Import interrupted — retrying (previous attempt did not finish)'
+			);
+		}
+	}
+
+	/**
+	 * Detect live runs stuck in `importing` longer than STALE_IMPORTING_MS
+	 * (hung NAS copy, crashed worker without restart, etc.) and retry them.
+	 */
+	async recoverStaleImportingItems(nowMs: number = Date.now()): Promise<number> {
+		const cutoff = new Date(nowMs - STALE_IMPORTING_MS).toISOString();
+		const stuck = await db
+			.select()
+			.from(downloadQueue)
+			.where(
+				and(
+					eq(downloadQueue.status, 'importing'),
+					or(isNull(downloadQueue.lastAttemptAt), lte(downloadQueue.lastAttemptAt, cutoff))
+				)
+			);
+
+		for (const item of stuck) {
+			logger.warn(
+				{
+					queueItemId: item.id,
+					title: item.title,
+					lastAttemptAt: item.lastAttemptAt,
+					staleAfterMinutes: Math.round(STALE_IMPORTING_MS / 60000)
+				},
+				'Import appears stuck in importing — resetting for retry'
+			);
+			await this.resetImportingForRetry(
+				item.id,
+				`Import stuck for over ${Math.round(STALE_IMPORTING_MS / 60000)} minutes — retrying`
+			);
+		}
+
+		return stuck.length;
+	}
+
+	/**
+	 * Move an `importing` row back to `completed` and re-request import.
+	 * Drops any in-memory processing-queue entry so requestImport can accept it.
+	 */
+	private async resetImportingForRetry(queueItemId: string, reason: string): Promise<void> {
+		// Drop in-memory claim so requestImport can accept the row again.
+		this.processingQueue = this.processingQueue.filter((id) => id !== queueItemId);
+
+		await db
+			.update(downloadQueue)
+			.set({
+				status: 'completed',
+				errorMessage: reason
+			})
+			.where(and(eq(downloadQueue.id, queueItemId), eq(downloadQueue.status, 'importing')));
+
+		const [item] = await db
+			.select()
+			.from(downloadQueue)
+			.where(eq(downloadQueue.id, queueItemId))
+			.limit(1);
+
+		if (!item) return;
+		if (!item.movieId && !item.seriesId) return;
+		if (!item.outputPath) {
+			this.trackPendingImport(queueItemId, reason);
+			return;
+		}
+
+		await this.requestImport(queueItemId);
+	}
+
+	/**
 	 * Retry pending imports that are ready
 	 */
 	private async retryPendingImports(): Promise<void> {
+		try {
+			await this.recoverStaleImportingItems();
+		} catch (err) {
+			logger.warn(
+				{ error: err instanceof Error ? err.message : String(err) },
+				'Error recovering stale importing items'
+			);
+		}
+
 		const now = Date.now();
 
 		for (const [queueItemId, info] of this.pendingImports) {
@@ -1259,7 +1399,7 @@ export class ImportService extends EventEmitter {
 			result.failureStage = 'transfer';
 			result.failureReason = 'transfer_failed';
 			worker.fileProcessed(basename(mainFile.path), false, transferResult.error);
-			await downloadMonitor.markFailed(queueItem.id, result.error);
+			await this.handleTransferFailure(queueItem.id, result.error);
 			return result;
 		}
 
@@ -1900,7 +2040,12 @@ export class ImportService extends EventEmitter {
 			}
 		} else {
 			result.error = 'Failed to import any episodes';
-			await downloadMonitor.markFailed(queueItem.id, result.error);
+			const timeoutError = result.failedFiles.find((f) => /timed out/i.test(f.error ?? ''))?.error;
+			if (timeoutError) {
+				await this.handleTransferFailure(queueItem.id, timeoutError);
+			} else {
+				await downloadMonitor.markFailed(queueItem.id, result.error);
+			}
 		}
 
 		return result;

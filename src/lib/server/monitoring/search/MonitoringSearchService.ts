@@ -3357,6 +3357,126 @@ export class MonitoringSearchService {
 	}
 
 	/**
+	 * Immediately search for a replacement release after a failed/blocklisted grab.
+	 * Bypasses per-item search cooldown (caller should clear failed-download block).
+	 */
+	async searchReplacementForMovie(movieId: string): Promise<ItemSearchResult | null> {
+		const movie = await db.query.movies.findFirst({
+			where: eq(movies.id, movieId),
+			with: { scoringProfile: true }
+		});
+		if (!movie?.monitored) {
+			logger.info({ movieId }, '[MonitoringSearch] Replacement search skipped — movie not monitored');
+			return null;
+		}
+		if (movie.hasFile) {
+			logger.info(
+				{ movieId, title: movie.title },
+				'[MonitoringSearch] Replacement search skipped — movie already has a file'
+			);
+			return null;
+		}
+
+		await db
+			.update(movies)
+			.set({ lastSearchTime: new Date().toISOString() })
+			.where(eq(movies.id, movieId));
+
+		logger.info(
+			{ movieId, title: movie.title },
+			'[MonitoringSearch] Running replacement search after failed release'
+		);
+		return this.searchAndGrabMovie(movie);
+	}
+
+	/**
+	 * Immediately search for replacement releases for specific missing episodes
+	 * after a failed/blocklisted grab.
+	 */
+	async searchReplacementForEpisodes(
+		seriesId: string,
+		episodeIds: string[]
+	): Promise<ItemSearchResult[]> {
+		if (episodeIds.length === 0) return [];
+
+		const idSet = new Set(episodeIds);
+		const candidates = await db.query.episodes.findMany({
+			where: and(
+				eq(episodes.seriesId, seriesId),
+				eq(episodes.monitored, true),
+				eq(episodes.hasFile, false),
+				inArray(episodes.id, episodeIds)
+			),
+			with: {
+				series: { with: { scoringProfile: true } },
+				season: true
+			}
+		});
+
+		const targets = candidates.filter((ep) => idSet.has(ep.id) && ep.series);
+		if (targets.length === 0) {
+			logger.info(
+				{ seriesId, episodeIds },
+				'[MonitoringSearch] Replacement search skipped — no eligible missing episodes'
+			);
+			return [];
+		}
+
+		const seriesData = targets[0].series!;
+		if (!seriesData.monitored) {
+			return [];
+		}
+
+		// Honor season-level monitoring
+		const monitoredSpec = new EpisodeMonitoredSpecification();
+		const eligible: typeof targets = [];
+		for (const episode of targets) {
+			const result = await monitoredSpec.isSatisfied({
+				series: seriesData,
+				episode,
+				profile: seriesData.scoringProfile ?? undefined
+			});
+			if (result.accepted) eligible.push(episode);
+		}
+		if (eligible.length === 0) return [];
+
+		const seasonMap = new Map<number, typeof eligible>();
+		for (const episode of eligible) {
+			const list = seasonMap.get(episode.seasonNumber) ?? [];
+			list.push(episode);
+			seasonMap.set(episode.seasonNumber, list);
+			await db
+				.update(episodes)
+				.set({ lastSearchTime: new Date().toISOString() })
+				.where(eq(episodes.id, episode.id));
+		}
+
+		logger.info(
+			{
+				seriesId,
+				title: seriesData.title,
+				episodeCount: eligible.length,
+				seasons: [...seasonMap.keys()]
+			},
+			'[MonitoringSearch] Running replacement episode search after failed release'
+		);
+
+		await this.preloadSeasonEpisodeCounts([seriesId]);
+		try {
+			const useRuTrackerEpisodePointerPolicy =
+				await this.shouldApplyRuTrackerEpisodePointerPolicy();
+			return await this.searchSeriesWithCascadingStrategy(
+				seriesData,
+				seasonMap,
+				undefined,
+				useRuTrackerEpisodePointerPolicy
+			);
+		} finally {
+			this.clearSeasonEpisodeCountCache();
+		}
+	}
+
+	/**
 	 * Aggregate search results into summary
 	 */
 	private aggregateResults(items: ItemSearchResult[]): SearchResults {

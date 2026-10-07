@@ -85,6 +85,8 @@ export function normalizeActivityStatus(status: unknown): ActivityStatus {
 		case 'imported':
 		case 'streaming':
 		case 'downloading':
+		case 'completed':
+		case 'importing':
 		case 'seeding':
 		case 'paused':
 		case 'failed':

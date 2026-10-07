@@ -12,7 +12,8 @@ export type ActivityStatus =
 	| 'imported' // Successfully imported to library
 	| 'streaming' // Streaming source (no download)
 	| 'downloading' // Currently downloading
-	| 'importing' // Transfer finished; import/post-processing pipeline in progress
+	| 'completed' // Download finished; waiting to start import
+	| 'importing' // Import/post-processing actively running
 	| 'seeding' // Download complete, still seeding
 	| 'paused' // Download paused
 	| 'failed' // Download or import failed
@@ -50,6 +51,7 @@ export type ActivityScope = 'all' | 'active' | 'history';
 
 const ACTIVE_ACTIVITY_STATUSES: ActivityStatus[] = [
 	'downloading',
+	'completed',
 	'importing',
 	'seeding',
 	'paused',
@@ -87,6 +89,7 @@ export const IMPORT_ERROR_PATTERNS: readonly string[] = [
 	'download path not available',
 	'dangerous files', // "Caution: Found potentially dangerous files: …"
 	'failed to transfer', // "Failed to transfer file: …"
+	'timed out', // "File copy timed out after N minutes…"
 	'no linked movie', // "No linked movie or series"
 	'no linked series', // "No linked movie or series" (alternate wording)
 	'removed from client' // "Download removed from client unexpectedly"

@@ -10,7 +10,10 @@ function projectWithQueueStatus(status: string): UnifiedActivity {
 			id: `queue-${status}`,
 			title: 'Some.Movie.2026.1080p.WEB-DL-GRP',
 			status,
-			progress: 1
+			progress: 1,
+			completedAt: '2026-10-01T00:00:00.000Z',
+			lastAttemptAt: '2026-10-01T01:00:00.000Z',
+			errorMessage: status === 'importing' ? 'Import interrupted — retrying' : null
 		},
 		{ mediaType: 'movie', mediaId: '', mediaTitle: 'Some Movie', mediaYear: 2026 }
 	);
@@ -23,8 +26,8 @@ describe('mapQueueStatus', () => {
 		expect(mapQueueStatus('stalled')).toBe('downloading');
 	});
 
-	it('maps post-download pipeline states to importing instead of downloading', () => {
-		expect(mapQueueStatus('completed')).toBe('importing');
+	it('maps completed downloads to awaiting-import, and active import distinctly', () => {
+		expect(mapQueueStatus('completed')).toBe('completed');
 		expect(mapQueueStatus('postprocessing')).toBe('importing');
 		expect(mapQueueStatus('importing')).toBe('importing');
 	});
@@ -40,16 +43,22 @@ describe('mapQueueStatus', () => {
 });
 
 describe('post-download queue items remain active but are not "downloading"', () => {
-	it.each(['completed', 'postprocessing', 'importing'])(
-		'%S items stay in the active scope',
-		(queueStatus) => {
-			const activity = projectWithQueueStatus(queueStatus);
+	it.each([
+		['completed', 'completed'],
+		['postprocessing', 'importing'],
+		['importing', 'importing']
+	] as const)('%s items map to %s and stay in the active scope', (queueStatus, activityStatus) => {
+		const activity = projectWithQueueStatus(queueStatus);
 
-			expect(activity.status).toBe('importing');
-			expect(isActiveActivity(activity)).toBe(true);
-			expect(activity.queueStatus).toBe(queueStatus);
-		}
-	);
+		expect(activity.status).toBe(activityStatus);
+		expect(isActiveActivity(activity)).toBe(true);
+		expect(activity.queueStatus).toBe(queueStatus);
+	});
+
+	it('surfaces import interruption reasons on importing activities', () => {
+		const activity = projectWithQueueStatus('importing');
+		expect(activity.statusReason).toBe('Import interrupted — retrying');
+	});
 });
 
 describe('buildActivitySummary counts importing separately from downloading', () => {

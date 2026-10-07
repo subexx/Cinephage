@@ -80,8 +80,13 @@ export function applyRequestedStatusFilter(
 		case 'success':
 			return activities.filter((activity) => activity.status === 'imported');
 		case 'downloading':
-		case 'importing':
 			return activities.filter((activity) => activity.status === status);
+		case 'importing':
+		case 'completed':
+			// Treat awaiting-import and active-import as the same filter bucket.
+			return activities.filter(
+				(activity) => activity.status === 'importing' || activity.status === 'completed'
+			);
 		case 'failed':
 		case 'search_error':
 		case 'seeding':
@@ -122,6 +127,7 @@ export function buildActivitySummary(activeActivities: UnifiedActivity[]): Activ
 				summary.failedCount += 1;
 				break;
 			case 'importing':
+			case 'completed':
 				summary.importingCount += 1;
 				break;
 			default:

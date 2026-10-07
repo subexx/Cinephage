@@ -3037,31 +3037,7 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 				);
 			}
 
-			// Reset search cooldown so the monitoring cycle re-searches immediately
-			try {
-				if (item.movieId) {
-					await db
-						.update(movies)
-						.set({ lastSearchTime: new Date(0).toISOString() })
-						.where(eq(movies.id, item.movieId));
-				}
-				if (item.seriesId && item.episodeIds?.length) {
-					await db
-						.update(episodes)
-						.set({ lastSearchTime: new Date(0).toISOString() })
-						.where(inArray(episodes.id, item.episodeIds));
-				}
-			} catch (error) {
-				logger.warn(
-					{
-						movieId: item.movieId,
-						seriesId: item.seriesId,
-						title: item.title,
-						error: error instanceof Error ? error.message : String(error)
-					},
-					'Failed to reset search cooldown for stalled download'
-				);
-			}
+			await this.triggerReplacementSearchAfterFailure(item);
 		}
 	}
 
@@ -3295,6 +3271,7 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 					);
 				}
 
+				await this.triggerReplacementSearchAfterFailure(item);
 				this.blockedExtensionCheckedHashes.add(cacheKey);
 			} catch (error) {
 				this.blockedExtensionCheckedHashes.add(cacheKey);
@@ -3316,6 +3293,7 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 
 	private async blocklistFailedUsenetRelease(
 		item: {
+			id?: string;
 			title: string;
 			infoHash?: string | null;
 			indexerId?: string | null;
@@ -3349,7 +3327,31 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 			);
 		}
 
+		await this.triggerReplacementSearchAfterFailure(item);
+	}
+
+	/**
+	 * After a release is blocklisted/failed: clear the 1h failed-grab block,
+	 * reset search cooldown, and immediately search for a different release
+	 * instead of waiting for the next daily missing-content run.
+	 */
+	private async triggerReplacementSearchAfterFailure(item: {
+		id?: string;
+		title?: string | null;
+		movieId?: string | null;
+		seriesId?: string | null;
+		episodeIds?: string[] | null;
+	}): Promise<void> {
 		try {
+			// Clear the FAILED_DOWNLOAD_COOLDOWN gate so the replacement search
+			// is not skipped as "recently failed".
+			if (item.id) {
+				await db
+					.update(downloadQueue)
+					.set({ lastAttemptAt: null })
+					.where(and(eq(downloadQueue.id, item.id), eq(downloadQueue.status, 'failed')));
+			}
+
 			if (item.movieId) {
 				await db
 					.update(movies)
@@ -3370,9 +3372,62 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 					title: item.title,
 					error: error instanceof Error ? error.message : String(error)
 				},
-				'Failed to reset search cooldown after usenet failure'
+				'Failed to clear search gates after release failure'
 			);
 		}
+
+		const movieId = item.movieId ?? undefined;
+		const seriesId = item.seriesId ?? undefined;
+		const episodeIds = item.episodeIds ?? undefined;
+		if (!movieId && !(seriesId && episodeIds?.length)) {
+			return;
+		}
+
+		// Fire-and-forget so the poll loop is not blocked on indexer latency.
+		void (async () => {
+			try {
+				const { monitoringSearchService } =
+					await import('$lib/server/monitoring/search/MonitoringSearchService.js');
+				if (movieId) {
+					const result = await monitoringSearchService.searchReplacementForMovie(movieId);
+					logger.info(
+						{
+							movieId,
+							title: item.title,
+							grabbed: result?.grabbed ?? false,
+							releasesFound: result?.releasesFound ?? 0,
+							skipped: result?.skipped,
+							skipReason: result?.skipReason
+						},
+						'Replacement search after failed release finished'
+					);
+				} else if (seriesId && episodeIds?.length) {
+					const results = await monitoringSearchService.searchReplacementForEpisodes(
+						seriesId,
+						episodeIds
+					);
+					logger.info(
+						{
+							seriesId,
+							title: item.title,
+							searched: results.filter((r) => r.searched).length,
+							grabbed: results.filter((r) => r.grabbed).length
+						},
+						'Replacement episode search after failed release finished'
+					);
+				}
+			} catch (error) {
+				logger.warn(
+					{
+						movieId,
+						seriesId,
+						title: item.title,
+						error: error instanceof Error ? error.message : String(error)
+					},
+					'Replacement search after failed release failed'
+				);
+			}
+		})();
 	}
 
 	async markFailed(
