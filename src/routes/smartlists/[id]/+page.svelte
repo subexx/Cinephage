@@ -26,7 +26,7 @@
 	} from 'lucide-svelte';
 	import type { PageData } from './$types';
 	import * as m from '$lib/paraglide/messages.js';
-	import { refreshSmartList, addSmartListItems } from '$lib/api';
+	import { refreshSmartListAndWait, addSmartListItems } from '$lib/api';
 
 	let { data }: { data: PageData } = $props();
 
@@ -98,14 +98,15 @@
 	async function refreshList() {
 		refreshing = true;
 		try {
-			const result = (await refreshSmartList(data.list.id)) as {
-				error?: string;
-				errorMessage?: string;
-				status?: string;
-			};
+			const result = await refreshSmartListAndWait(data.list.id, {
+				onBackground: () =>
+					toasts.info(m.smartlists_refresh_backgroundTitle(), {
+						description: m.smartlists_refresh_backgroundDescription()
+					})
+			});
 
-			if (result?.status === 'failed') {
-				throw new Error(result?.errorMessage ?? result?.error ?? 'Smart list refresh failed');
+			if (result.status === 'failed') {
+				throw new Error(result.errorMessage ?? 'Smart list refresh failed');
 			}
 
 			await invalidateAll();

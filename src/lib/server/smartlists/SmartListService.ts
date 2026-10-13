@@ -70,10 +70,39 @@ type SmartListExternalSourceConfig = {
 	username?: string;
 };
 
+export class RefreshInProgressError extends Error {
+	constructor(listId: string) {
+		super(`Smart list ${listId} is already refreshing`);
+		this.name = 'RefreshInProgressError';
+	}
+}
+
 export class SmartListService {
 	private static instance: SmartListService | null = null;
 
+	/** Lists with a refresh in flight (manual, background, or scheduled) */
+	private readonly refreshingIds = new Set<string>();
+
 	private constructor() {}
+
+	isRefreshing(id: string): boolean {
+		return this.refreshingIds.has(id);
+	}
+
+	/**
+	 * Start a refresh without waiting for it. Large external sources (100+ catalog
+	 * addons, long MDBList lists) can take minutes, far longer than an HTTP request
+	 * should stay open. Returns false when the list is already refreshing.
+	 */
+	startRefreshInBackground(id: string, refreshType: 'automatic' | 'manual'): boolean {
+		if (this.refreshingIds.has(id)) {
+			return false;
+		}
+		this.refreshSmartList(id, refreshType).catch((error) => {
+			logger.error({ err: error, listId: id }, '[SmartListService] Background refresh failed');
+		});
+		return true;
+	}
 
 	static getInstance(): SmartListService {
 		if (!SmartListService.instance) {
@@ -397,6 +426,23 @@ export class SmartListService {
 	// =========================================================================
 
 	async refreshSmartList(id: string, refreshType: 'automatic' | 'manual'): Promise<RefreshResult> {
+		// Claim the list synchronously so overlapping refreshes (double clicks, scheduler
+		// firing during a manual refresh) can't insert the same items twice
+		if (this.refreshingIds.has(id)) {
+			throw new RefreshInProgressError(id);
+		}
+		this.refreshingIds.add(id);
+		try {
+			return await this.runRefresh(id, refreshType);
+		} finally {
+			this.refreshingIds.delete(id);
+		}
+	}
+
+	private async runRefresh(
+		id: string,
+		refreshType: 'automatic' | 'manual'
+	): Promise<RefreshResult> {
 		const list = await this.getSmartList(id);
 
 		if (!list) {
@@ -668,6 +714,9 @@ export class SmartListService {
 				const result = await this.refreshSmartList(list.id, 'automatic');
 				results.push(result);
 			} catch (error) {
+				if (error instanceof RefreshInProgressError) {
+					continue;
+				}
 				logger.error(
 					{ err: error, ...{ listId: list.id } },
 					'[SmartListService] Failed to refresh list'

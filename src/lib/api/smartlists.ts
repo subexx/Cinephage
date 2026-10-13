@@ -31,6 +31,54 @@ export async function refreshSmartList(id: string) {
 	return apiPost(`/api/smartlists/${id}/refresh`);
 }
 
+export async function getSmartListRefreshStatus(id: string) {
+	return apiGet(`/api/smartlists/${id}/refresh`);
+}
+
+interface SmartListRefreshStatus {
+	refreshing: boolean;
+	lastRefreshStatus: string | null;
+	lastRefreshError: string | null;
+}
+
+const REFRESH_POLL_INTERVAL_MS = 3000;
+
+/**
+ * Refresh a smart list and wait for it to finish. External lists refresh in the
+ * background on the server, so this polls until that run completes.
+ * Resolves with the final status; `onBackground` fires once if it went to the background.
+ */
+export async function refreshSmartListAndWait(
+	id: string,
+	options: { onBackground?: () => void } = {}
+): Promise<{ status: string; errorMessage?: string }> {
+	const result = (await refreshSmartList(id)) as {
+		status?: string;
+		error?: string;
+		errorMessage?: string;
+	};
+
+	if (result?.status !== 'started' && result?.status !== 'running') {
+		return {
+			status: result?.status ?? 'success',
+			errorMessage: result?.errorMessage ?? result?.error
+		};
+	}
+
+	options.onBackground?.();
+
+	for (;;) {
+		await new Promise((resolve) => setTimeout(resolve, REFRESH_POLL_INTERVAL_MS));
+		const status = (await getSmartListRefreshStatus(id)) as unknown as SmartListRefreshStatus;
+		if (!status.refreshing) {
+			return {
+				status: status.lastRefreshStatus ?? 'success',
+				errorMessage: status.lastRefreshError ?? undefined
+			};
+		}
+	}
+}
+
 export async function refreshAllSmartLists() {
 	return apiPost('/api/smartlists/refresh-all');
 }

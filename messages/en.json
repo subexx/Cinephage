@@ -4004,6 +4004,8 @@
 	"smartlists_detail_paginationPrevious": "Previous",
 	"smartlists_detail_refreshButton": "Refresh",
 	"smartlists_detail_refreshFailed": "Smart list refresh failed",
+	"smartlists_refresh_backgroundTitle": "Refresh running in the background",
+	"smartlists_refresh_backgroundDescription": "Large lists can take several minutes. You can leave this page; items appear when it finishes.",
 	"smartlists_detail_refreshNow": "Refresh Now",
 	"smartlists_detail_searchPlaceholder": "Search Smart List...",
 	"smartlists_detail_showExcluded": "Show excluded",

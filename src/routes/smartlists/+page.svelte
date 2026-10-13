@@ -17,7 +17,7 @@
 	} from 'lucide-svelte';
 	import type { PageData } from './$types';
 	import * as m from '$lib/paraglide/messages.js';
-	import { refreshSmartList, deleteSmartList, updateSmartList } from '$lib/api';
+	import { refreshSmartListAndWait, deleteSmartList, updateSmartList } from '$lib/api';
 	import { formatDisplayDate } from '$lib/utils/format.js';
 
 	let { data }: { data: PageData } = $props();
@@ -38,14 +38,10 @@
 		actionError = null;
 		refreshingIds.add(id);
 		try {
-			const result = (await refreshSmartList(id)) as {
-				error?: string;
-				errorMessage?: string;
-				status?: string;
-			};
+			const result = await refreshSmartListAndWait(id);
 
-			if (result?.status === 'failed') {
-				throw new Error(result?.errorMessage ?? result?.error ?? 'Smart list refresh failed');
+			if (result.status === 'failed') {
+				throw new Error(result.errorMessage ?? 'Smart list refresh failed');
 			}
 
 			await invalidateAll();

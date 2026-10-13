@@ -4006,6 +4006,8 @@
 	"smartlists_detail_paginationPrevious": "Назад",
 	"smartlists_detail_refreshButton": "Обновить",
 	"smartlists_detail_refreshFailed": "Не удалось обновить умный список",
+	"smartlists_refresh_backgroundTitle": "Обновление выполняется в фоне",
+	"smartlists_refresh_backgroundDescription": "Большие списки могут обновляться несколько минут. Можно уйти со страницы — элементы появятся, когда обновление завершится.",
 	"smartlists_detail_refreshNow": "Обновить сейчас",
 	"smartlists_detail_searchPlaceholder": "Поиск в умном списке...",
 	"smartlists_detail_showExcluded": "Показать исключённые",

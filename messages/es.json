@@ -4006,6 +4006,8 @@
 	"smartlists_detail_paginationPrevious": "Anterior",
 	"smartlists_detail_refreshButton": "Actualizar",
 	"smartlists_detail_refreshFailed": "Error al actualizar lista inteligente",
+	"smartlists_refresh_backgroundTitle": "Actualización en segundo plano",
+	"smartlists_refresh_backgroundDescription": "Las listas grandes pueden tardar varios minutos. Puedes salir de esta página; los elementos aparecerán al terminar.",
 	"smartlists_detail_refreshNow": "Actualizar ahora",
 	"smartlists_detail_searchPlaceholder": "Buscar en lista inteligente...",
 	"smartlists_detail_showExcluded": "Mostrar excluidos",
