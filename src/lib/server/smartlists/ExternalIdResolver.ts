@@ -26,6 +26,9 @@ export interface IdResolutionResult {
 	/** Whether resolution was successful */
 	success: boolean;
 
+	/** The ID resolved, but to the other media type (movie vs TV) */
+	mediaTypeMismatch?: boolean;
+
 	/** Error message if resolution failed */
 	error?: string;
 }
@@ -80,41 +83,20 @@ export class ExternalIdResolver {
 				};
 			}
 
-			// Try cross-type lookup (IMDB might be for wrong type)
-			if (result.movie_results.length > 0) {
-				const movie = result.movie_results[0];
-				logger.warn(
-					{
-						imdbId,
-						foundTitle: movie.title
-					},
-					'[ExternalIdResolver] IMDB resolved to movie but requested TV'
-				);
-				// Still return it - better than nothing
-				return {
-					tmdbId: movie.id,
-					title: movie.title,
-					year: movie.release_date ? parseInt(movie.release_date.substring(0, 4)) : undefined,
-					posterPath: movie.poster_path,
-					success: true
-				};
-			}
-
-			if (result.tv_results.length > 0) {
-				const show = result.tv_results[0];
-				logger.warn(
-					{
-						imdbId,
-						foundTitle: show.name
-					},
-					'[ExternalIdResolver] IMDB resolved to TV but requested movie'
+			// The IMDB ID belongs to the other media type. Never return it: TMDB movie and TV
+			// IDs overlap, so a show's ID used as a movie ID points at an unrelated movie.
+			const otherTypeCount =
+				mediaType === 'movie' ? result.tv_results.length : result.movie_results.length;
+			if (otherTypeCount > 0) {
+				logger.debug(
+					{ imdbId, mediaType },
+					'[ExternalIdResolver] IMDB ID is for the other media type, skipping'
 				);
 				return {
-					tmdbId: show.id,
-					title: show.name,
-					year: show.first_air_date ? parseInt(show.first_air_date.substring(0, 4)) : undefined,
-					posterPath: show.poster_path,
-					success: true
+					tmdbId: null,
+					success: false,
+					mediaTypeMismatch: true,
+					error: `IMDB ID is not a ${mediaType === 'movie' ? 'movie' : 'TV show'}`
 				};
 			}
 
@@ -147,6 +129,49 @@ export class ExternalIdResolver {
 				tmdbId: null,
 				success: false,
 				error: errorMessage
+			};
+		}
+	}
+
+	/**
+	 * Resolve a TVDB ID to a TMDB ID of the requested media type
+	 */
+	async resolveByTvdbId(tvdbId: number, mediaType: 'movie' | 'tv'): Promise<IdResolutionResult> {
+		try {
+			const result = await tmdb.findByExternalId(String(tvdbId), 'tvdb_id');
+			if (mediaType === 'tv' && result.tv_results.length > 0) {
+				const show = result.tv_results[0];
+				return {
+					tmdbId: show.id,
+					title: show.name,
+					year: show.first_air_date ? parseInt(show.first_air_date.substring(0, 4)) : undefined,
+					posterPath: show.poster_path,
+					success: true
+				};
+			}
+			if (mediaType === 'movie' && result.movie_results.length > 0) {
+				const movie = result.movie_results[0];
+				return {
+					tmdbId: movie.id,
+					title: movie.title,
+					year: movie.release_date ? parseInt(movie.release_date.substring(0, 4)) : undefined,
+					posterPath: movie.poster_path,
+					success: true
+				};
+			}
+			const otherTypeCount =
+				mediaType === 'movie' ? result.tv_results.length : result.movie_results.length;
+			return {
+				tmdbId: null,
+				success: false,
+				mediaTypeMismatch: otherTypeCount > 0,
+				error: otherTypeCount > 0 ? 'TVDB ID is for the other media type' : 'TVDB ID not found'
+			};
+		} catch (error) {
+			return {
+				tmdbId: null,
+				success: false,
+				error: error instanceof Error ? error.message : String(error)
 			};
 		}
 	}
@@ -235,6 +260,7 @@ export class ExternalIdResolver {
 		item: {
 			tmdbId?: number;
 			imdbId?: string;
+			tvdbId?: number;
 			title: string;
 			year?: number;
 		},
@@ -288,7 +314,8 @@ export class ExternalIdResolver {
 		// Strategy 2: Resolve IMDB ID
 		if (item.imdbId) {
 			const result = await this.resolveByImdbId(item.imdbId, mediaType);
-			if (result.success) {
+			// A type mismatch is definitive; a title search would only find a namesake
+			if (result.success || result.mediaTypeMismatch) {
 				return result;
 			}
 			// IMDB resolution failed, log details and continue to title search
@@ -311,6 +338,14 @@ export class ExternalIdResolver {
 				},
 				'[ExternalIdResolver] No IMDB ID available, using title search'
 			);
+		}
+
+		// Strategy 2b: Resolve TVDB ID (common in Stremio/MDBList series data)
+		if (item.tvdbId) {
+			const result = await this.resolveByTvdbId(item.tvdbId, mediaType);
+			if (result.success || result.mediaTypeMismatch) {
+				return result;
+			}
 		}
 
 		// Strategy 3: Search by title+year
@@ -344,6 +379,7 @@ export class ExternalIdResolver {
 		items: Array<{
 			tmdbId?: number;
 			imdbId?: string;
+			tvdbId?: number;
 			title: string;
 			year?: number;
 		}>,

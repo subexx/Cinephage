@@ -1,0 +1,28 @@
+provider: mdblist
+name: MDBList
+description: Import your own (including private) or any public MDBList list
+icon: list
+baseUrl: https://api.mdblist.com
+
+# No presets - user provides their own list
+presets: []
+
+settings:
+  - name: apiKey
+    label: API Key
+    type: password
+    helpText: 'From mdblist.com → Preferences → API. Optional for public lists, required for private lists and list IDs.'
+
+  - name: list
+    label: List
+    type: mdblist-list
+    required: true
+    helpText: "List URL (https://mdblist.com/lists/user/list-name), 'user/list-name', or list ID. With an API key you can pick from your lists."
+
+  - name: maxItems
+    label: Max Items
+    type: number
+    min: 50
+    max: 5000
+    default: 1000
+    helpText: 'Upper limit fetched from the list on every refresh'

@@ -2,13 +2,18 @@
 	import { Database, Globe, Loader2, Check, AlertCircle } from 'lucide-svelte';
 	import * as m from '$lib/paraglide/messages.js';
 	import { onMount } from 'svelte';
-	import { getSmartListPresets, testExternalList } from '$lib/api/smartlists.js';
+	import {
+		getSmartListPresets,
+		testExternalList,
+		getStremioAddonCatalogs,
+		getMdblistUserLists
+	} from '$lib/api/smartlists.js';
 
 	// Types
 	interface PresetSetting {
 		name: string;
 		label: string;
-		type: 'number' | 'string' | 'boolean' | 'select';
+		type: 'number' | 'string' | 'password' | 'boolean' | 'select' | 'catalogs' | 'mdblist-list';
 		min?: number;
 		max?: number;
 		default?: number | string | boolean;
@@ -66,6 +71,91 @@
 	let headersText = $state('{}');
 	let testing = $state(false);
 	let testResult = $state<{ success: boolean; message: string; itemCount?: number } | null>(null);
+
+	// Stremio catalog picker
+	interface StremioCatalogOption {
+		key: string;
+		name: string;
+		type: string;
+		mediaType?: 'movie' | 'tv';
+		requiresExtra: boolean;
+	}
+	let stremioCatalogs = $state<StremioCatalogOption[] | null>(null);
+	let stremioAddonName = $state<string | null>(null);
+	let loadingCatalogs = $state(false);
+	let pickerError = $state<string | null>(null);
+
+	// MDBList list picker
+	interface MdblistListOption {
+		id: number;
+		name: string;
+		mediaType?: 'movie' | 'tv';
+		itemCount?: number;
+	}
+	let mdblistLists = $state<MdblistListOption[] | null>(null);
+	let loadingMdblistLists = $state(false);
+
+	const matchingCatalogs = $derived(
+		(stremioCatalogs ?? []).filter((c) => !c.mediaType || c.mediaType === mediaType)
+	);
+
+	function selectedCatalogKeys(): string[] {
+		const raw = presetSettings.catalogs;
+		return typeof raw === 'string'
+			? raw
+					.split(/[\n,]+/)
+					.map((key) => key.trim())
+					.filter(Boolean)
+			: [];
+	}
+
+	function toggleCatalog(key: string, checked: boolean) {
+		const keys = selectedCatalogKeys().filter((existing) => existing !== key);
+		if (checked) keys.push(key);
+		handleSettingChange('catalogs', keys.join(','));
+	}
+
+	async function loadStremioCatalogs() {
+		const manifestUrl = String(presetSettings.manifestUrl ?? '').trim();
+		pickerError = null;
+		if (!manifestUrl) {
+			pickerError = m.smartlists_picker_enterManifest();
+			return;
+		}
+		loadingCatalogs = true;
+		try {
+			const data = (await getStremioAddonCatalogs(manifestUrl)) as unknown as {
+				addonName: string;
+				catalogs: StremioCatalogOption[];
+			};
+			stremioAddonName = data.addonName;
+			stremioCatalogs = data.catalogs;
+		} catch (e) {
+			pickerError = e instanceof Error ? e.message : m.smartlists_error_generic();
+		} finally {
+			loadingCatalogs = false;
+		}
+	}
+
+	async function loadMdblistLists() {
+		const apiKey = String(presetSettings.apiKey ?? '').trim();
+		pickerError = null;
+		if (!apiKey) {
+			pickerError = m.smartlists_picker_enterApiKey();
+			return;
+		}
+		loadingMdblistLists = true;
+		try {
+			const data = (await getMdblistUserLists(apiKey)) as unknown as {
+				lists: MdblistListOption[];
+			};
+			mdblistLists = data.lists;
+		} catch (e) {
+			pickerError = e instanceof Error ? e.message : m.smartlists_error_generic();
+		} finally {
+			loadingMdblistLists = false;
+		}
+	}
 
 	// List source options - will be populated from fetched presets
 	let listSourceOptions = $state<Array<{ value: string; label: string; icon: typeof Database }>>([
@@ -317,6 +407,116 @@
 								<option value={opt.value}>{opt.label}</option>
 							{/each}
 						</select>
+					{:else if setting.type === 'password'}
+						<input
+							type="password"
+							id={setting.name}
+							autocomplete="off"
+							value={presetSettings[setting.name] ?? setting.default ?? ''}
+							oninput={(e) => handleSettingChange(setting.name, e.currentTarget.value)}
+							class="input-bordered input w-full input-sm"
+						/>
+					{:else if setting.type === 'catalogs'}
+						<div class="space-y-2">
+							<div class="flex items-center gap-2">
+								<button
+									type="button"
+									class="btn btn-outline btn-xs"
+									onclick={loadStremioCatalogs}
+									disabled={loadingCatalogs}
+								>
+									{#if loadingCatalogs}
+										<Loader2 class="h-3 w-3 animate-spin" />
+									{/if}
+									{m.smartlists_picker_loadCatalogs()}
+								</button>
+								{#if stremioAddonName}
+									<span class="text-xs text-base-content/60">{stremioAddonName}</span>
+								{/if}
+							</div>
+							{#if stremioCatalogs}
+								<p class="text-xs text-base-content/60">
+									{m.smartlists_picker_catalogsHint({ count: matchingCatalogs.length })}
+								</p>
+								<div class="max-h-60 space-y-1 overflow-y-auto rounded border border-base-300 p-2">
+									{#each matchingCatalogs as catalog (catalog.key)}
+										<label
+											class="flex cursor-pointer items-center gap-2 text-sm {catalog.requiresExtra
+												? 'opacity-50'
+												: ''}"
+										>
+											<input
+												type="checkbox"
+												class="checkbox checkbox-xs checkbox-primary"
+												disabled={catalog.requiresExtra}
+												checked={selectedCatalogKeys().includes(catalog.key)}
+												onchange={(e) => toggleCatalog(catalog.key, e.currentTarget.checked)}
+											/>
+											<span class="truncate">{catalog.name}</span>
+											<span class="text-xs text-base-content/50">{catalog.type}</span>
+											{#if catalog.requiresExtra}
+												<span class="text-xs text-base-content/50"
+													>({m.smartlists_picker_requiresExtra()})</span
+												>
+											{/if}
+										</label>
+									{/each}
+								</div>
+							{/if}
+							<textarea
+								id={setting.name}
+								rows="2"
+								value={String(presetSettings[setting.name] ?? '')}
+								oninput={(e) => handleSettingChange(setting.name, e.currentTarget.value)}
+								placeholder="movie/catalog-id, series/other-id"
+								class="textarea-bordered textarea w-full font-mono text-xs"></textarea>
+						</div>
+					{:else if setting.type === 'mdblist-list'}
+						<div class="space-y-2">
+							<input
+								type="text"
+								id={setting.name}
+								value={presetSettings[setting.name] ?? ''}
+								oninput={(e) => handleSettingChange(setting.name, e.currentTarget.value)}
+								placeholder="https://mdblist.com/lists/user/list-name"
+								class="input-bordered input w-full input-sm"
+							/>
+							<div class="flex items-center gap-2">
+								<button
+									type="button"
+									class="btn btn-outline btn-xs"
+									onclick={loadMdblistLists}
+									disabled={loadingMdblistLists}
+								>
+									{#if loadingMdblistLists}
+										<Loader2 class="h-3 w-3 animate-spin" />
+									{/if}
+									{m.smartlists_picker_loadLists()}
+								</button>
+								{#if mdblistLists && mdblistLists.length > 0}
+									<select
+										class="select-bordered select flex-1 select-xs"
+										value=""
+										onchange={(e) => {
+											if (e.currentTarget.value) {
+												handleSettingChange(setting.name, e.currentTarget.value);
+											}
+										}}
+									>
+										<option value="">{m.smartlists_picker_chooseList()}</option>
+										{#each mdblistLists as list (list.id)}
+											<option value={String(list.id)}>
+												{list.name}{list.mediaType ? ` (${list.mediaType})` : ''}{list.itemCount
+													? ` · ${list.itemCount}`
+													: ''}
+											</option>
+										{/each}
+									</select>
+								{:else if mdblistLists}
+									<span class="text-xs text-base-content/60">{m.smartlists_picker_noLists()}</span>
+								{/if}
+							</div>
+						</div>
 					{:else}
 						<input
 							type="text"
@@ -332,6 +532,13 @@
 					{/if}
 				</div>
 			{/each}
+
+			{#if pickerError}
+				<div class="flex items-center gap-2 text-sm text-error">
+					<AlertCircle class="h-4 w-4" />
+					<span>{pickerError}</span>
+				</div>
+			{/if}
 
 			<!-- Info notice about mixed content -->
 			<div class="mt-4 rounded-lg border border-info/30 bg-info/10 p-3">

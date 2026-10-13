@@ -15,6 +15,9 @@ export interface ExternalListItem {
 	/** IMDB ID (will be resolved to TMDB ID if tmdbId not provided) */
 	imdbId?: string;
 
+	/** TVDB ID (resolved via TMDB find when neither tmdbId nor imdbId resolves) */
+	tvdbId?: number;
+
 	/** Title for display and TMDB search fallback */
 	title: string;
 
@@ -38,6 +41,34 @@ export interface ExternalListItem {
 
 	/** Original language */
 	originalLanguage?: string;
+
+	/**
+	 * Media type reported by the source, when it knows it. Items whose type differs
+	 * from the smart list's are dropped before ID resolution.
+	 */
+	mediaType?: 'movie' | 'tv';
+}
+
+/**
+ * Normalize the many ways sources spell a media type ('show', 'series', 'tv', ...)
+ */
+export function normalizeExternalMediaType(value: unknown): 'movie' | 'tv' | undefined {
+	if (typeof value !== 'string') return undefined;
+	switch (value.trim().toLowerCase()) {
+		case 'movie':
+		case 'movies':
+		case 'film':
+			return 'movie';
+		case 'tv':
+		case 'show':
+		case 'shows':
+		case 'series':
+		case 'tvshow':
+		case 'tv_show':
+			return 'tv';
+		default:
+			return undefined;
+	}
 }
 
 /**
@@ -160,4 +191,23 @@ export interface ExternalListProvider {
 	 * @returns Promise resolving to the list result
 	 */
 	fetchItems(config: unknown, mediaType: 'movie' | 'tv' | ''): Promise<ExternalListResult>;
+}
+
+/**
+ * Extract a TMDB poster path ("/abc.jpg") from a TMDB image URL. Posters from other
+ * hosts return undefined so the poster from TMDB resolution is used instead.
+ */
+export function extractTmdbPosterPath(value: unknown): string | undefined {
+	if (typeof value !== 'string' || !value) return undefined;
+	if (value.startsWith('/')) return value;
+	const match = value.match(/image\.tmdb\.org\/t\/p\/[^/]+(\/[^?#]+)/);
+	return match?.[1];
+}
+
+/**
+ * Parse a positive integer ID from a number or numeric string
+ */
+export function parsePositiveInt(value: unknown): number | undefined {
+	const num = typeof value === 'string' ? Number(value.trim()) : value;
+	return typeof num === 'number' && Number.isInteger(num) && num > 0 ? num : undefined;
 }

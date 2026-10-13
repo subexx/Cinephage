@@ -296,6 +296,25 @@
 				}
 			}
 
+			if (presetProvider === 'stremio-catalog') {
+				const manifestUrl =
+					typeof presetSettings.manifestUrl === 'string' ? presetSettings.manifestUrl.trim() : '';
+				if (!manifestUrl) {
+					return 'Stremio addon manifest URL is required before saving';
+				}
+			}
+
+			if (presetProvider === 'mdblist') {
+				const listSetting = String(presetSettings.list ?? '').trim();
+				const apiKey = String(presetSettings.apiKey ?? '').trim();
+				if (!listSetting) {
+					return 'MDBList list is required before saving';
+				}
+				if (/^\d+$/.test(listSetting) && !apiKey) {
+					return 'An MDBList API key is required to use a list ID';
+				}
+			}
+
 			if (presetProvider === 'tmdb-list') {
 				if (!listIdSetting) {
 					return 'TMDb list ID is required before saving';

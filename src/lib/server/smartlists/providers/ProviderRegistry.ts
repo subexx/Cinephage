@@ -8,6 +8,8 @@ import type { ExternalListProvider } from './types.js';
 import { JsonListProvider } from './JsonListProvider.js';
 import { ImdbListProvider } from './ImdbListProvider.js';
 import { TmdbListProvider } from './TmdbListProvider.js';
+import { StremioCatalogProvider } from './StremioCatalogProvider.js';
+import { MdblistProvider } from './MdblistProvider.js';
 
 class ProviderRegistry {
 	private providers = new Map<string, ExternalListProvider>();
@@ -17,6 +19,8 @@ class ProviderRegistry {
 		this.register(new JsonListProvider());
 		this.register(new ImdbListProvider());
 		this.register(new TmdbListProvider());
+		this.register(new StremioCatalogProvider());
+		this.register(new MdblistProvider());
 	}
 
 	/**

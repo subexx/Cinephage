@@ -1,0 +1,28 @@
+provider: stremio-catalog
+name: Stremio Addon Catalog
+description: Pull titles from the catalogs of any Stremio addon (AIOMetadata, Cinemeta, MDBList, Trakt, streaming catalogs, ...)
+icon: globe
+baseUrl: ''
+
+# No presets - user provides their own addon manifest
+presets: []
+
+settings:
+  - name: manifestUrl
+    label: Addon Manifest URL
+    type: string
+    required: true
+    helpText: "The addon's manifest URL, e.g. https://your-aiometadata-host/stremio/<config-id>/manifest.json (the same link you install in Stremio; stremio:// links work too)"
+
+  - name: catalogs
+    label: Catalogs
+    type: catalogs
+    helpText: 'Catalogs to pull. Leave empty to pull every catalog matching the list media type. Catalogs that need a genre or search value are skipped.'
+
+  - name: maxItems
+    label: Max Items per Catalog
+    type: number
+    min: 20
+    max: 2000
+    default: 500
+    helpText: 'Upper limit fetched from each catalog on every refresh'

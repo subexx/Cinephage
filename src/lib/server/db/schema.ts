@@ -2854,6 +2854,12 @@ export const smartListItems = sqliteTable(
 		isExcluded: integer('is_excluded', { mode: 'boolean' }).default(false),
 		excludedAt: text('excluded_at'),
 
+		// === AUTO-ADD FAILURE TRACKING ===
+		// Failed auto-add attempts; items over the limit are retried on a slow backoff
+		autoAddAttempts: integer('auto_add_attempts').default(0),
+		lastAutoAddAttemptAt: text('last_auto_add_attempt_at'),
+		lastAutoAddError: text('last_auto_add_error'),
+
 		// === TIMESTAMPS ===
 		firstSeenAt: text('first_seen_at').$defaultFn(() => new Date().toISOString()),
 		lastSeenAt: text('last_seen_at').$defaultFn(() => new Date().toISOString()),

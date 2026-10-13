@@ -152,6 +152,7 @@ import { migration_v152 } from './152-drop-subtitle-settings.js';
 import { migration_v153 } from './153-add-smart-list-desired-qualities.js';
 import { migration_v154 } from './154-movie-qualities-and-language-policy.js';
 import { migration_v155 } from './155-stale-missing-unmonitor.js';
+import { migration_v156 } from './156-smart-list-item-auto-add-attempts.js';
 
 export const MIGRATIONS: MigrationDefinition[] = [
 	migration_v002,
@@ -306,5 +307,6 @@ export const MIGRATIONS: MigrationDefinition[] = [
 	migration_v152,
 	migration_v153,
 	migration_v154,
-	migration_v155
+	migration_v155,
+	migration_v156
 ];

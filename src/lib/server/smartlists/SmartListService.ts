@@ -54,6 +54,15 @@ import { externalIdResolver } from './ExternalIdResolver.js';
 import { presetService } from './presets/PresetService.js';
 import type { ExternalListItem } from './providers/types.js';
 
+/** Max items auto-added per list per refresh (keeps indexers/TMDB from being flooded) */
+const AUTO_ADD_BATCH_SIZE = 25;
+/** Rows scanned per page while looking for eligible auto-add candidates */
+const AUTO_ADD_SCAN_PAGE = 200;
+/** Failed attempts before an item backs off to the slow retry window */
+const AUTO_ADD_MAX_ATTEMPTS = 3;
+/** How long a repeatedly failing item waits before it is retried */
+const AUTO_ADD_FAILURE_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
+
 type SmartListExternalSourceConfig = {
 	url?: string;
 	headers?: Record<string, string>;
@@ -365,6 +374,18 @@ export class SmartListService {
 				);
 			}
 
+			if (providerType === 'stremio-catalog') {
+				throw new ValidationError(
+					'Stremio addon manifest URL must be a valid http(s) or stremio:// URL'
+				);
+			}
+
+			if (providerType === 'mdblist') {
+				throw new ValidationError(
+					"MDBList list must be a list URL or 'user/list-name' (a numeric list ID needs an API key)"
+				);
+			}
+
 			throw new ValidationError(`Invalid configuration for external provider '${providerType}'`, {
 				providerType
 			});
@@ -380,6 +401,14 @@ export class SmartListService {
 
 		if (!list) {
 			throw new Error(`Smart list not found: ${id}`);
+		}
+
+		// A manual refresh gives previously failing items a fresh set of auto-add attempts
+		if (refreshType === 'manual') {
+			await db
+				.update(smartListItems)
+				.set({ autoAddAttempts: 0 })
+				.where(and(eq(smartListItems.smartListId, id), sql`${smartListItems.autoAddAttempts} > 0`));
 		}
 
 		// Route to appropriate refresh method based on source type
@@ -1364,24 +1393,7 @@ export class SmartListService {
 			return { added: 0 };
 		}
 
-		// Get items not in library, ordered by position (highest ranked first)
-		const itemsToAdd = await db.query.smartListItems.findMany({
-			where: and(
-				eq(smartListItems.smartListId, list.id),
-				eq(smartListItems.inLibrary, false),
-				lt(smartListItems.position, 9999) // exclude removed items
-			),
-			orderBy: asc(smartListItems.position),
-			limit: 10 // Add max 10 items per refresh to avoid overwhelming the system
-		});
-
-		if (itemsToAdd.length === 0) {
-			return { added: 0 };
-		}
-
-		const blockedIds = await getBlockedTmdbIdSet(mediaType);
-		const safeItems =
-			blockedIds.size > 0 ? itemsToAdd.filter((item) => !blockedIds.has(item.tmdbId)) : itemsToAdd;
+		const safeItems = await this.selectAutoAddCandidates(list, mediaType);
 
 		if (safeItems.length === 0) {
 			return { added: 0 };
@@ -1435,6 +1447,82 @@ export class SmartListService {
 		return { added: addedCount };
 	}
 
+	/**
+	 * Pick the next batch of items to auto-add, highest ranked first.
+	 *
+	 * Excluded, blocked, and repeatedly failing items are skipped *before* the batch is
+	 * filled, so they can never occupy every slot and stall the rest of the list.
+	 */
+	private async selectAutoAddCandidates(
+		list: SmartListRecord,
+		mediaType: 'movie' | 'tv'
+	): Promise<SmartListItemRecord[]> {
+		const blockedIds = await getBlockedTmdbIdSet(mediaType);
+		const excludedIds = new Set(list.excludedTmdbIds ?? []);
+		const retryBefore = Date.now() - AUTO_ADD_FAILURE_RETRY_MS;
+
+		const isEligible = (item: SmartListItemRecord): boolean => {
+			if (item.isExcluded || excludedIds.has(item.tmdbId) || blockedIds.has(item.tmdbId)) {
+				return false;
+			}
+			if ((item.autoAddAttempts ?? 0) < AUTO_ADD_MAX_ATTEMPTS) {
+				return true;
+			}
+			// Gave up for now; retry on a slow backoff so transient outages still recover
+			const lastAttempt = item.lastAutoAddAttemptAt ? Date.parse(item.lastAutoAddAttemptAt) : 0;
+			return Number.isNaN(lastAttempt) || lastAttempt < retryBefore;
+		};
+
+		const selected: SmartListItemRecord[] = [];
+		for (let offset = 0; selected.length < AUTO_ADD_BATCH_SIZE; offset += AUTO_ADD_SCAN_PAGE) {
+			const page = await db.query.smartListItems.findMany({
+				where: and(
+					eq(smartListItems.smartListId, list.id),
+					eq(smartListItems.inLibrary, false),
+					lt(smartListItems.position, 9999) // exclude removed items
+				),
+				orderBy: [asc(smartListItems.position), asc(smartListItems.id)],
+				limit: AUTO_ADD_SCAN_PAGE,
+				offset
+			});
+
+			for (const item of page) {
+				if (isEligible(item)) {
+					selected.push(item);
+					if (selected.length >= AUTO_ADD_BATCH_SIZE) break;
+				}
+			}
+
+			if (page.length < AUTO_ADD_SCAN_PAGE) break;
+		}
+
+		return selected;
+	}
+
+	/**
+	 * Record a failed auto-add so the item backs off instead of blocking the batch forever.
+	 */
+	private async recordAutoAddFailure(item: SmartListItemRecord, error: unknown): Promise<void> {
+		const message = error instanceof Error ? error.message : String(error);
+		const now = new Date().toISOString();
+		try {
+			await db
+				.update(smartListItems)
+				.set({
+					autoAddAttempts: sql`coalesce(${smartListItems.autoAddAttempts}, 0) + 1`,
+					lastAutoAddAttemptAt: now,
+					lastAutoAddError: message.slice(0, 500),
+					updatedAt: now
+				})
+				.where(eq(smartListItems.id, item.id));
+		} catch (updateError) {
+			logger.error(
+				{ err: updateError, itemId: item.id },
+				'[SmartListService] Failed to record auto-add failure'
+			);
+		}
+	}
+
 	private async autoAddMovies(
 		items: SmartListItemRecord[],
 		list: SmartListRecord,
@@ -1479,6 +1567,7 @@ export class SmartListService {
 		}
 
 		for (const item of newItems) {
+			let markedInLibrary = false;
 			try {
 				// Fetch movie details from TMDB
 				const movieDetails = await fetchMovieDetails(item.tmdbId);
@@ -1560,6 +1649,7 @@ export class SmartListService {
 					})
 					.where(eq(smartListItems.id, item.id));
 
+				markedInLibrary = true;
 				added++;
 
 				logger.info(
@@ -1584,6 +1674,9 @@ export class SmartListService {
 					});
 				}
 			} catch (error) {
+				if (!markedInLibrary) {
+					await this.recordAutoAddFailure(item, error);
+				}
 				logger.error(
 					{
 						err: error,
@@ -1645,6 +1738,7 @@ export class SmartListService {
 		}
 
 		for (const item of newItems) {
+			let markedInLibrary = false;
 			try {
 				// Fetch series details from TMDB
 				const seriesDetails = await fetchSeriesDetails(item.tmdbId);
@@ -1738,6 +1832,7 @@ export class SmartListService {
 					})
 					.where(eq(smartListItems.id, item.id));
 
+				markedInLibrary = true;
 				added++;
 
 				logger.info(
@@ -1759,6 +1854,9 @@ export class SmartListService {
 					});
 				}
 			} catch (error) {
+				if (!markedInLibrary) {
+					await this.recordAutoAddFailure(item, error);
+				}
 				logger.error(
 					{
 						err: error,
@@ -1979,9 +2077,11 @@ export class SmartListService {
 				throw new Error('Invalid external source configuration');
 			}
 
-			// Fetch items from external source
-			// For external lists, we pass empty string to show all content types (movies and TV)
-			const externalResult = await provider.fetchItems(externalSourceConfig, '');
+			// Fetch items from external source, letting type-aware providers skip the other type
+			const externalResult = await provider.fetchItems(
+				externalSourceConfig,
+				list.mediaType as 'movie' | 'tv'
+			);
 
 			if (externalResult.error) {
 				throw new Error(`External fetch failed: ${externalResult.error}`);
@@ -1996,12 +2096,31 @@ export class SmartListService {
 				'[SmartListService] Fetched external items'
 			);
 
-			// Resolve external items to TMDB items
-			const resolvedItems = await this.resolveExternalItems(
-				externalResult.items,
-				list.mediaType as 'movie' | 'tv',
-				id
+			// Drop items the source says are the other media type (mixed movie/show lists)
+			const listMediaType = list.mediaType as 'movie' | 'tv';
+			const matchingItems = externalResult.items.filter(
+				(item) => !item.mediaType || item.mediaType === listMediaType
 			);
+			if (matchingItems.length < externalResult.items.length) {
+				logger.info(
+					{
+						id,
+						skipped: externalResult.items.length - matchingItems.length,
+						listMediaType
+					},
+					'[SmartListService] Skipped external items of the other media type'
+				);
+			}
+
+			// Resolve external items to TMDB items (deduplicated: sources can repeat titles)
+			const seenTmdbIds = new Set<number>();
+			const resolvedItems = (
+				await this.resolveExternalItems(matchingItems, listMediaType, id)
+			).filter((item) => {
+				if (seenTmdbIds.has(item.tmdbId)) return false;
+				seenTmdbIds.add(item.tmdbId);
+				return true;
+			});
 
 			logger.info(
 				{

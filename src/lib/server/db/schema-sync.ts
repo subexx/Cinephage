@@ -160,8 +160,9 @@ import {
  * Version 153: Add desired_qualities to smart_lists
  * Version 154: Default movie 4K+1080p copies and English+Original language profile (v2)
  * Version 155: Stale-missing unmonitor — failed_content_search_attempts on movies/series + settings
+ * Version 156: smart_list_items auto-add attempt tracking (auto_add_attempts, last_auto_add_attempt_at, last_auto_add_error)
  */
-export const CURRENT_SCHEMA_VERSION = 155;
+export const CURRENT_SCHEMA_VERSION = 156;
 
 export const SYSTEM_LIBRARY_SEEDS = [
 	{
@@ -1117,6 +1118,9 @@ const TABLE_DEFINITIONS: string[] = [
 		"position" integer NOT NULL,
 		"is_excluded" integer DEFAULT false,
 		"excluded_at" text,
+		"auto_add_attempts" integer DEFAULT 0,
+		"last_auto_add_attempt_at" text,
+		"last_auto_add_error" text,
 		"first_seen_at" text,
 		"last_seen_at" text,
 		"updated_at" text

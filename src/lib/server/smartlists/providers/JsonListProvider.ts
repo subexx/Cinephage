@@ -18,6 +18,7 @@ import type {
 	ExternalListResult,
 	ExternalJsonConfig
 } from './types.js';
+import { normalizeExternalMediaType } from './types.js';
 
 export class JsonListProvider implements ExternalListProvider {
 	readonly type = 'external-json';
@@ -254,6 +255,11 @@ export class JsonListProvider implements ExternalListProvider {
 				}
 			}
 
+			// Media type (MDBList uses 'mediatype', TMDB-style payloads use 'media_type')
+			const itemMediaType = normalizeExternalMediaType(
+				obj.mediatype ?? obj.media_type ?? obj.mediaType ?? obj.type
+			);
+
 			return {
 				tmdbId,
 				imdbId,
@@ -263,7 +269,8 @@ export class JsonListProvider implements ExternalListProvider {
 				overview,
 				voteAverage,
 				voteCount,
-				genreIds
+				genreIds,
+				mediaType: itemMediaType
 			};
 		}
 

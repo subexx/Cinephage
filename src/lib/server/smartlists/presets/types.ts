@@ -7,7 +7,9 @@
 export interface PresetSetting {
 	name: string;
 	label: string;
-	type: 'number' | 'string' | 'boolean' | 'select';
+	/** 'catalogs' and 'mdblist-list' are text values with a source-specific picker */
+	type: 'number' | 'string' | 'password' | 'boolean' | 'select' | 'catalogs' | 'mdblist-list';
+	required?: boolean;
 	min?: number;
 	max?: number;
 	default?: number | string | boolean;

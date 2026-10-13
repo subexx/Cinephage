@@ -51,6 +51,14 @@ export async function testExternalList(payload: Record<string, unknown>) {
 	return apiPost('/api/smartlists/external/test', payload);
 }
 
+export async function getStremioAddonCatalogs(manifestUrl: string) {
+	return apiPost('/api/smartlists/external/stremio-catalogs', { manifestUrl });
+}
+
+export async function getMdblistUserLists(apiKey: string) {
+	return apiPost('/api/smartlists/external/mdblist-lists', { apiKey });
+}
+
 export async function getSmartListHelpers(params?: Record<string, string>) {
 	return apiGet('/api/smartlists/helpers', params);
 }

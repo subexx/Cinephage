@@ -144,6 +144,12 @@ export const POST: RequestHandler = async ({ request, url }) => {
 			});
 		}
 
+		// Only resolve what the preview can show: drop the other media type and cap the
+		// count, so large catalogs don't trigger thousands of TMDB lookups per keystroke
+		const previewSourceItems = result.items
+			.filter((item) => !data.mediaType || !item.mediaType || item.mediaType === data.mediaType)
+			.slice(0, data.itemLimit);
+
 		// Resolve external items to TMDB items using concurrent batch processing
 		const resolvedItems = [];
 		const seenIds = new Set<number>();
@@ -159,7 +165,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 
 		logger.info(
 			{
-				totalItems: result.items.length,
+				totalItems: previewSourceItems.length,
 				mediaType: resolveMediaType
 			},
 			'[ExternalPreview API] Starting concurrent resolution'
@@ -167,14 +173,14 @@ export const POST: RequestHandler = async ({ request, url }) => {
 
 		// Use batch resolution with concurrency for much faster processing
 		const resolutions = await externalIdResolver.resolveItemsBatch(
-			result.items,
+			previewSourceItems,
 			resolveMediaType,
 			10
 		);
 
 		// Process results and handle cross-type fallback for items without mediaType
-		for (let i = 0; i < result.items.length; i++) {
-			const item = result.items[i];
+		for (let i = 0; i < previewSourceItems.length; i++) {
+			const item = previewSourceItems[i];
 			let resolution = resolutions[i];
 
 			// If no mediaType was specified and movie resolution failed, try TV
@@ -227,7 +233,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		if (failedCount > 0) {
 			logger.warn(
 				{
-					totalItems: result.items.length,
+					totalItems: previewSourceItems.length,
 					resolvedCount,
 					failedCount,
 					duplicatesRemoved,
