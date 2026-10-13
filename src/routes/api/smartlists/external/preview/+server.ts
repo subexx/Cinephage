@@ -14,6 +14,9 @@ import { z } from 'zod';
 import { smartListExternalPreviewSchema } from '$lib/validation/schemas.js';
 import { contentFilterPipeline } from '$lib/server/filters/ContentFilterPipeline.js';
 
+/** Items fetched by a connection test: enough to prove the source works */
+const TEST_SAMPLE_ITEMS = 50;
+
 const logger = createChildLogger({
 	module: 'SmartListsExternalPreviewApi',
 	logDomain: 'monitoring'
@@ -93,6 +96,18 @@ export const POST: RequestHandler = async ({ request, url }) => {
 			);
 		} else {
 			return json({ error: 'Must provide presetId, providerType, or url' }, { status: 400 });
+		}
+
+		// The connection test and live preview only need a sample. Cap list sources that can
+		// be huge (100+ catalog addons, 10k item lists) instead of crawling all of it.
+		const sampleLimit = isTest ? TEST_SAMPLE_ITEMS : data.itemLimit;
+		if (providerType === 'stremio-catalog') {
+			providerConfig = { ...providerConfig, maxTotalItems: sampleLimit };
+		} else if (providerType === 'mdblist') {
+			providerConfig = {
+				...providerConfig,
+				maxItems: Math.min(Number(providerConfig.maxItems) || sampleLimit, sampleLimit)
+			};
 		}
 
 		// Get the appropriate provider

@@ -21,6 +21,8 @@ const DEFAULT_MAX_ITEMS_PER_CATALOG = 500;
 const MAX_ITEMS_PER_CATALOG_LIMIT = 5000;
 /** Hard stop on pagination in case an addon ignores `skip` and keeps returning pages */
 const MAX_PAGES_PER_CATALOG = 100;
+/** Pause between catalog requests so large addons (and the APIs behind them) aren't hammered */
+const REQUEST_SPACING_MS = 250;
 
 export interface StremioCatalogConfig {
 	/** Addon manifest URL (…/manifest.json); stremio:// links are accepted */
@@ -32,6 +34,11 @@ export interface StremioCatalogConfig {
 	catalogs?: string;
 	/** Max items fetched from each catalog */
 	maxItems?: number;
+	/**
+	 * Stop once this many items are collected across all catalogs. Used by the editor
+	 * preview / connection test so they don't crawl every catalog of a large addon.
+	 */
+	maxTotalItems?: number;
 }
 
 export interface StremioCatalogExtra {
@@ -130,7 +137,14 @@ function catalogRequiresExtra(catalog: StremioCatalogDefinition): boolean {
 		if (extra.isRequired) required.add(extra.name);
 	}
 	required.delete('skip');
-	return required.size > 0;
+	if (required.size > 0) return true;
+
+	// Search-style catalogs (AI search, people search, ...) only return results for a
+	// query, even when the addon doesn't mark the search extra as required
+	const supportsSearch =
+		getExtras(catalog).some((extra) => extra.name === 'search') ||
+		(Array.isArray(catalog.extraSupported) && catalog.extraSupported.includes('search'));
+	return supportsSearch && /search/i.test(`${catalog.id} ${catalog.name ?? ''}`);
 }
 
 function catalogSupportsPaging(catalog: StremioCatalogDefinition): boolean {
@@ -156,6 +170,10 @@ function parseCatalogKeys(value: unknown): string[] {
 		.split(/[\n,]+/)
 		.map((key) => key.trim())
 		.filter(Boolean);
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchJson(url: string): Promise<unknown> {
@@ -305,9 +323,17 @@ export class StremioCatalogProvider implements ExternalListProvider {
 			let totalCount = 0;
 			const catalogErrors: string[] = [];
 
-			for (const catalog of catalogs) {
+			const maxTotalItems = Number(cfg.maxTotalItems) > 0 ? Number(cfg.maxTotalItems) : Infinity;
+
+			for (const [index, catalog] of catalogs.entries()) {
+				if (items.length >= maxTotalItems) break;
+				if (index > 0) await sleep(REQUEST_SPACING_MS);
 				try {
-					const metas = await this.fetchCatalogMetas(baseUrl, catalog, maxItems);
+					const metas = await this.fetchCatalogMetas(
+						baseUrl,
+						catalog,
+						Math.min(maxItems, maxTotalItems - items.length)
+					);
 					totalCount += metas.length;
 					for (const meta of metas) {
 						const item = parseStremioMeta(meta as StremioMeta);
@@ -397,6 +423,7 @@ export class StremioCatalogProvider implements ExternalListProvider {
 					? `${baseUrl}/catalog/${type}/${id}.json`
 					: `${baseUrl}/catalog/${type}/${id}/skip=${metas.length}.json`;
 
+			if (page > 0) await sleep(REQUEST_SPACING_MS);
 			const data = (await fetchJson(url)) as { metas?: unknown };
 			const pageMetas = Array.isArray(data?.metas) ? data.metas : [];
 

@@ -107,6 +107,26 @@ describe('parseStremioMeta', () => {
 });
 
 describe('summarizeCatalog', () => {
+	it('treats search catalogs as needing input even when search is optional', () => {
+		expect(
+			summarizeCatalog({
+				type: 'movie',
+				id: 'aiometadata.ai_search',
+				name: 'AI Search',
+				extra: [{ name: 'search' }, { name: 'skip' }]
+			}).requiresExtra
+		).toBe(true);
+		// Cinemeta-style "top" catalogs support optional search but are plain lists
+		expect(
+			summarizeCatalog({
+				type: 'movie',
+				id: 'top',
+				name: 'Popular',
+				extra: [{ name: 'search' }, { name: 'skip' }]
+			}).requiresExtra
+		).toBe(false);
+	});
+
 	it('flags catalogs that need extra input and paging support', () => {
 		const [top, , search, staticCatalog] = manifest.catalogs.map(summarizeCatalog);
 		expect(top).toMatchObject({
@@ -214,5 +234,20 @@ describe('StremioCatalogProvider', () => {
 		);
 		expect(result.error).toBeUndefined();
 		expect(result.items.map((item) => item.imdbId)).toEqual(['tt9']);
+	});
+
+	it('stops at maxTotalItems across catalogs (preview / test sampling)', async () => {
+		const fetchMock = mockAddon({
+			[`${BASE}/manifest.json`]: manifest,
+			[`${BASE}/catalog/movie/mdblist.top.json`]: {
+				metas: Array.from({ length: 30 }, (_, i) => ({ id: `tt${i + 1}`, name: `M${i}` }))
+			}
+		});
+
+		const result = await provider.fetchItems({ manifestUrl: BASE, maxTotalItems: 10 }, 'movie');
+
+		expect(result.items).toHaveLength(10);
+		// Manifest + first page of the first catalog only; the static catalog is never fetched
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 });

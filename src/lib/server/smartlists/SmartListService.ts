@@ -2112,10 +2112,21 @@ export class SmartListService {
 				);
 			}
 
+			// Get existing items for this list
+			const existingItems = await db.query.smartListItems.findMany({
+				where: eq(smartListItems.smartListId, id)
+			});
+			const existingTmdbIds = new Set(existingItems.map((item) => item.tmdbId));
+
 			// Resolve external items to TMDB items (deduplicated: sources can repeat titles)
 			const seenTmdbIds = new Set<number>();
 			const resolvedItems = (
-				await this.resolveExternalItems(matchingItems, listMediaType, id)
+				await this.resolveExternalItems(
+					matchingItems,
+					listMediaType,
+					id,
+					new Map(existingItems.map((item) => [item.tmdbId, item]))
+				)
 			).filter((item) => {
 				if (seenTmdbIds.has(item.tmdbId)) return false;
 				seenTmdbIds.add(item.tmdbId);
@@ -2130,12 +2141,6 @@ export class SmartListService {
 				},
 				'[SmartListService] Resolved external items to TMDB'
 			);
-
-			// Get existing items for this list
-			const existingItems = await db.query.smartListItems.findMany({
-				where: eq(smartListItems.smartListId, id)
-			});
-			const existingTmdbIds = new Set(existingItems.map((item) => item.tmdbId));
 
 			// Process items
 			let itemsNew = 0;
@@ -2338,7 +2343,8 @@ export class SmartListService {
 	private async resolveExternalItems(
 		items: ExternalListItem[],
 		mediaType: 'movie' | 'tv',
-		listId: string
+		listId: string,
+		knownItems: Map<number, SmartListItemRecord> = new Map()
 	): Promise<
 		Array<{
 			tmdbId: number;
@@ -2364,8 +2370,34 @@ export class SmartListService {
 
 		const startTime = Date.now();
 
+		// Items whose TMDB ID is already on this list were verified on an earlier refresh;
+		// reuse them so a large list doesn't cost a TMDB lookup per item on every refresh
+		const results: Array<Awaited<ReturnType<typeof externalIdResolver.resolveItem>>> = [];
+		const unknownIndexes: number[] = [];
+		items.forEach((item, index) => {
+			const known = item.tmdbId ? knownItems.get(item.tmdbId) : undefined;
+			if (known) {
+				results[index] = {
+					tmdbId: known.tmdbId,
+					title: known.title,
+					year: known.year ?? undefined,
+					posterPath: known.posterPath,
+					success: true
+				};
+			} else {
+				unknownIndexes.push(index);
+			}
+		});
+
 		// Use batch resolution with concurrency for much faster processing
-		const results = await externalIdResolver.resolveItemsBatch(items, mediaType, 10);
+		const lookedUp = await externalIdResolver.resolveItemsBatch(
+			unknownIndexes.map((index) => items[index]),
+			mediaType,
+			10
+		);
+		unknownIndexes.forEach((index, i) => {
+			results[index] = lookedUp[i];
+		});
 
 		const resolved: ReturnType<typeof this.resolveExternalItems> extends Promise<infer T>
 			? T
