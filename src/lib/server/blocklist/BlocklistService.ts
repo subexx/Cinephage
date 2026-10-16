@@ -1,6 +1,6 @@
 import { db } from '$lib/server/db/index.js';
-import { blocklist } from '$lib/server/db/schema.js';
-import { eq, or, and, gt, isNull, lte, inArray, count } from 'drizzle-orm';
+import { blocklist, movies, series } from '$lib/server/db/schema.js';
+import { eq, or, and, gt, isNull, lte, inArray, count, sql, type SQL } from 'drizzle-orm';
 
 export type BlocklistReason =
 	| 'download_failed'
@@ -91,6 +91,49 @@ class BlocklistService {
 		return BlocklistService.instance;
 	}
 
+	/**
+	 * Condition matching entries for a library item, including entries detached
+	 * when that item was deleted earlier (trigger, migration v157) and later re-added.
+	 */
+	private async targetCondition(
+		movieId: string | undefined,
+		seriesId: string | undefined
+	): Promise<SQL | undefined> {
+		if (movieId) {
+			const movie = await db.query.movies.findFirst({
+				where: eq(movies.id, movieId),
+				columns: { tmdbId: true }
+			});
+			return or(
+				eq(blocklist.movieId, movieId),
+				movie
+					? and(
+							isNull(blocklist.movieId),
+							eq(blocklist.tmdbId, movie.tmdbId),
+							eq(blocklist.mediaType, 'movie')
+						)
+					: undefined
+			);
+		}
+		if (seriesId) {
+			const show = await db.query.series.findFirst({
+				where: eq(series.id, seriesId),
+				columns: { tmdbId: true }
+			});
+			return or(
+				eq(blocklist.seriesId, seriesId),
+				show
+					? and(
+							isNull(blocklist.seriesId),
+							eq(blocklist.tmdbId, show.tmdbId),
+							eq(blocklist.mediaType, 'tv')
+						)
+					: undefined
+			);
+		}
+		return undefined;
+	}
+
 	async isBlocklisted(
 		release: BlocklistCheckRelease,
 		options: BlocklistCheckOptions
@@ -103,8 +146,12 @@ class BlocklistService {
 			conditions.push(eq(blocklist.infoHash, release.infoHash));
 		}
 
+		// Usenet releases have no hash: match the release name on any indexer. The
+		// same post is listed by every indexer (NZBGeek, NZBFinder, ...), so scoping
+		// a title block to the indexer it was added from let the copy on the other
+		// indexer straight through. Case-insensitive: some sources re-case names.
 		if (release.title) {
-			conditions.push(eq(blocklist.sourceTitle, release.title));
+			conditions.push(sql`lower(${blocklist.sourceTitle}) = ${release.title.trim().toLowerCase()}`);
 		}
 
 		if (conditions.length === 0) {
@@ -114,12 +161,8 @@ class BlocklistService {
 		const entries = await db.query.blocklist.findMany({
 			where: and(
 				or(...conditions),
-				options.movieId ? eq(blocklist.movieId, options.movieId) : undefined,
-				options.seriesId ? eq(blocklist.seriesId, options.seriesId) : undefined,
-				or(isNull(blocklist.expiresAt), gt(blocklist.expiresAt, now)),
-				release.indexerId
-					? or(isNull(blocklist.indexerId), eq(blocklist.indexerId, release.indexerId))
-					: undefined
+				await this.targetCondition(options.movieId, options.seriesId),
+				or(isNull(blocklist.expiresAt), gt(blocklist.expiresAt, now))
 			),
 			limit: 1
 		});
@@ -143,15 +186,19 @@ class BlocklistService {
 
 		const entries = await db.query.blocklist.findMany({
 			where: and(
-				movieId ? eq(blocklist.movieId, movieId) : undefined,
-				seriesId ? eq(blocklist.seriesId, seriesId) : undefined,
+				await this.targetCondition(movieId, seriesId),
 				or(isNull(blocklist.expiresAt), gt(blocklist.expiresAt, now))
 			),
 			columns: { infoHash: true, sourceTitle: true }
 		});
 
 		const blockedHashes = new Set(entries.map((e) => e.infoHash).filter(Boolean) as string[]);
-		const blockedTitles = new Set(entries.map((e) => e.sourceTitle).filter(Boolean) as string[]);
+		// Lower-cased: compare with release.title.trim().toLowerCase()
+		const blockedTitles = new Set(
+			entries
+				.map((e) => e.sourceTitle?.trim().toLowerCase())
+				.filter((title): title is string => !!title)
+		);
 
 		return { blockedHashes, blockedTitles };
 	}

@@ -9,10 +9,15 @@
  *
  * Identity is established ONLY by:
  *   1. exact equality of the normalized title, or
- *   2. Levenshtein similarity ≥ threshold (default 0.7), or
+ *   2. a near match: a typo-sized edit on a long title (see isTitleNearMatch), or
  *   3. an explicit external-ID match (handled by callers that have indexer
  *      IDs; this module arbitrates titles only)
  * plus year agreement whenever both sides carry a year.
+ *
+ * Near matches are deliberately tight. A plain similarity threshold (0.7)
+ * matched "Aashan" to "Aasha" (one letter, 0.83) and "Pushpa 2" to "Pushpa":
+ * on short titles a single letter is a different film, and a digit is a
+ * sequel.
  *
  * Token containment is deliberately NOT identity evidence ("Blade" vs
  * "Blade Runner", "Halloween" vs "The Bride of Halloween"). The restricted
@@ -42,6 +47,51 @@ export function titleTokens(input: string): string[] {
 	return tokens;
 }
 
+/** Shortest normalized title (characters) that may differ from its target at all */
+const NEAR_MATCH_MIN_LENGTH = 10;
+/** Normalized length from which two edits are tolerated instead of one */
+const NEAR_MATCH_TWO_EDITS_LENGTH = 20;
+
+function levenshtein(a: string, b: string): number {
+	const previous = Array.from({ length: b.length + 1 }, (_, j) => j);
+	for (let i = 1; i <= a.length; i++) {
+		let diagonal = previous[0];
+		previous[0] = i;
+		for (let j = 1; j <= b.length; j++) {
+			const above = previous[j];
+			previous[j] = Math.min(
+				previous[j] + 1,
+				previous[j - 1] + 1,
+				diagonal + (a[i - 1] === b[j - 1] ? 0 : 1)
+			);
+			diagonal = above;
+		}
+	}
+	return previous[b.length];
+}
+
+function digitsOf(value: string): string {
+	return value.replace(/\D+/g, '');
+}
+
+/**
+ * Whether two normalized (de-punctuated) titles are the same title with a typo.
+ *
+ * - Titles shorter than 10 characters must match exactly ("aasha" ≠ "aashan").
+ * - Longer titles tolerate one edit (two from 20 characters).
+ * - Titles whose digits differ never match ("pushpa2" ≠ "pushpa",
+ *   "fast7" ≠ "fast8"): numbers mark sequels and parts.
+ */
+export function isTitleNearMatch(releaseNorm: string, targetNorm: string): boolean {
+	if (releaseNorm === targetNorm) return true;
+	if (digitsOf(releaseNorm) !== digitsOf(targetNorm)) return false;
+	const shorter = Math.min(releaseNorm.length, targetNorm.length);
+	if (shorter < NEAR_MATCH_MIN_LENGTH) return false;
+	const allowedEdits = shorter >= NEAR_MATCH_TWO_EDITS_LENGTH ? 2 : 1;
+	if (Math.abs(releaseNorm.length - targetNorm.length) > allowedEdits) return false;
+	return levenshtein(releaseNorm, targetNorm) <= allowedEdits;
+}
+
 /** Normalize a title to its de-punctuated comparison form ("The Foo-Bar" → "foobar"). */
 export function normalizeIdentityTitle(input: string): string {
 	return titleTokens(input).join('');
@@ -64,7 +114,10 @@ export interface ReleaseIdentityInput {
 	/** Movie release year or series first-air year. */
 	targetYear?: number;
 	yearMode?: IdentityYearMode;
-	/** Levenshtein similarity threshold (default 0.7). */
+	/**
+	 * Legacy Levenshtein similarity threshold. When set, it replaces the
+	 * near-match rule; leave unset for acquisition decisions.
+	 */
 	minimumSimilarity?: number;
 }
 
@@ -137,7 +190,12 @@ export function matchReleaseToTarget(input: ReleaseIdentityInput): ReleaseIdenti
 				reason: 'title_mismatch'
 			};
 		}
-		if (similarity >= (input.minimumSimilarity ?? 0.7)) {
+		const accepted =
+			method === 'exact' ||
+			(input.minimumSimilarity !== undefined
+				? similarity >= input.minimumSimilarity
+				: isTitleNearMatch(releaseNorm, candidateNorm));
+		if (accepted) {
 			const yearMode = input.yearMode ?? 'strict';
 			if (!yearsAgree(input.releaseYear, input.targetYear, yearMode)) {
 				return {

@@ -74,7 +74,11 @@ import { movies, series } from '$lib/server/db/schema.js';
 import { eq } from 'drizzle-orm';
 import { blocklistService } from '$lib/server/blocklist/BlocklistService.js';
 import { DANGEROUS_EXTENSIONS, EXECUTABLE_EXTENSIONS } from '$lib/config/constants.js';
-import { matchTitleContainment } from '$lib/server/releases/release-identity.js';
+import {
+	isTitleNearMatch,
+	matchTitleContainment,
+	normalizeIdentityTitle
+} from '$lib/server/releases/release-identity.js';
 
 /** Options for search orchestration */
 export interface SearchOrchestratorOptions {
@@ -2436,7 +2440,7 @@ export class SearchOrchestrator {
 
 		const isBlocked = (release: ReleaseResult): boolean =>
 			(!!release.infoHash && blockedHashes.has(release.infoHash)) ||
-			blockedTitles.has(release.title);
+			blockedTitles.has(release.title.trim().toLowerCase());
 
 		// Interactive searches show everything: blocklisted releases stay
 		// visible with a `blocklisted` marker (surfaced as a rejection badge
@@ -3103,8 +3107,20 @@ export class SearchOrchestrator {
 					// cannot reduce to a clean title.
 					const allowContainment = isInteractiveSearch || releasePrefersNativeCyrillic;
 					titleMatch = normalizedCandidates.some((expectedName) => {
-						const similarity = this.calculateTitleSimilarity(releaseName, expectedName);
-						if (similarity >= 0.7) {
+						// Automatic searches use the acquisition near-match rule (exact for
+						// short titles, typo-sized edits on long ones, digits must agree):
+						// 0.7 similarity matched "Aashan" to "Aasha". Interactive searches
+						// keep the looser display threshold; IdentityStage gates the grab.
+						if (isInteractiveSearch || releasePrefersNativeCyrillic) {
+							if (this.calculateTitleSimilarity(releaseName, expectedName) >= 0.7) {
+								return true;
+							}
+						} else if (
+							isTitleNearMatch(
+								normalizeIdentityTitle(releaseName),
+								normalizeIdentityTitle(expectedName)
+							)
+						) {
 							return true;
 						}
 						if (!allowContainment) {

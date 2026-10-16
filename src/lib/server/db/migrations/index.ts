@@ -153,6 +153,7 @@ import { migration_v153 } from './153-add-smart-list-desired-qualities.js';
 import { migration_v154 } from './154-movie-qualities-and-language-policy.js';
 import { migration_v155 } from './155-stale-missing-unmonitor.js';
 import { migration_v156 } from './156-smart-list-item-auto-add-attempts.js';
+import { migration_v157 } from './157-blocklist-survives-media-delete.js';
 
 export const MIGRATIONS: MigrationDefinition[] = [
 	migration_v002,
@@ -308,5 +309,6 @@ export const MIGRATIONS: MigrationDefinition[] = [
 	migration_v153,
 	migration_v154,
 	migration_v155,
-	migration_v156
+	migration_v156,
+	migration_v157
 ];

@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { blockedMediaService } from '$lib/server/blocked-media/index.js';
 import type { RequestHandler } from './$types.js';
 import { db } from '$lib/server/db/index.js';
 import { series, seasons, episodes, rootFolders } from '$lib/server/db/schema.js';
@@ -173,6 +174,19 @@ export const POST: RequestHandler = async (event) => {
 					{ status: 400 }
 				);
 			}
+		}
+
+		// Blocked media stays out of the library no matter who adds it: the UI,
+		// request apps (Seerr & co. via the Radarr/Sonarr API) or smart lists.
+		if (await blockedMediaService.isBlocked(tmdbId, 'tv')) {
+			return json(
+				{
+					success: false,
+					error:
+						'This series is blocked. Unblock it in Settings → Blocklist → Blocked Media to add it again.'
+				},
+				{ status: 409 }
+			);
 		}
 
 		// Check if series already exists

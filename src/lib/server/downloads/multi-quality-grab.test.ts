@@ -133,8 +133,10 @@ function seedMovieAndClient() {
 		.values({
 			id: 'movie-2',
 			tmdbId: 101,
-			title: 'Test Movie Two',
-			path: 'Test Movie Two (2026)',
+			// Same-titled second film (e.g. a remake): the release passes identity
+			// for both targets, so these tests exercise the duplicate-hash guard.
+			title: 'Test Movie',
+			path: 'Test Movie (2026) {tmdb-101}',
 			desiredQualities: ['1080p']
 		})
 		.run();

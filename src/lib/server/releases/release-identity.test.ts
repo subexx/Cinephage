@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	isTitleNearMatch,
 	matchReleaseToTarget,
 	matchTitleContainment,
 	normalizeIdentityTitle,
@@ -29,6 +30,40 @@ describe('normalizeIdentityTitle', () => {
 });
 
 describe('matchReleaseToTarget', () => {
+	// 2026-10-17: "Aashan" (2026) releases were grabbed for "Aasha" (2026) at
+	// 0.83 similarity. Radarr requires an exact clean-title match.
+	it('rejects a one-letter-different short title (Aashan vs Aasha)', () => {
+		const result = matchReleaseToTarget({
+			releaseTitle: 'Aashan',
+			targetTitles: ['Aasha'],
+			releaseYear: 2026,
+			targetYear: 2026
+		});
+		expect(result.matched).toBe(false);
+		expect(result.reason).toBe('title_mismatch');
+	});
+
+	it('rejects sequel numbers (Pushpa 2 vs Pushpa)', () => {
+		const result = matchReleaseToTarget({
+			releaseTitle: 'Pushpa 2',
+			targetTitles: ['Pushpa'],
+			releaseYear: 2021,
+			targetYear: 2021
+		});
+		expect(result.matched).toBe(false);
+	});
+
+	it('still tolerates a typo in a long title', () => {
+		const result = matchReleaseToTarget({
+			releaseTitle: 'The Shawshank Redemtion',
+			targetTitles: ['The Shawshank Redemption'],
+			releaseYear: 1994,
+			targetYear: 1994
+		});
+		expect(result.matched).toBe(true);
+		expect(result.method).toBe('similarity');
+	});
+
 	it('matches exact normalized titles', () => {
 		const result = matchReleaseToTarget({
 			releaseTitle: 'Spider-Man No Way Home',
@@ -213,5 +248,26 @@ describe('matchTitleContainment (display-only)', () => {
 
 	it('is order agnostic', () => {
 		expect(matchTitleContainment('Show Name', 'Show Name Special').contained).toBe(true);
+	});
+});
+
+describe('isTitleNearMatch', () => {
+	it('requires exact matches for short titles', () => {
+		expect(isTitleNearMatch('aasha', 'aasha')).toBe(true);
+		expect(isTitleNearMatch('aashan', 'aasha')).toBe(false);
+		expect(isTitleNearMatch('thor', 'thar')).toBe(false);
+	});
+
+	it('allows one edit on long titles and two on very long ones', () => {
+		expect(isTitleNearMatch('shawshankredemtion', 'shawshankredemption')).toBe(true);
+		expect(isTitleNearMatch('shawshnkredemtion', 'shawshankredemption')).toBe(false);
+		expect(
+			isTitleNearMatch('lordoftheringsfelowshipofthring', 'lordoftheringsfellowshipofthering')
+		).toBe(true);
+	});
+
+	it('never matches when the digits differ', () => {
+		expect(isTitleNearMatch('missionimpossible7', 'missionimpossible8')).toBe(false);
+		expect(isTitleNearMatch('fastandfurious', 'fastandfurious7')).toBe(false);
 	});
 });

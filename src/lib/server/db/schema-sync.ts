@@ -161,8 +161,9 @@ import {
  * Version 154: Default movie 4K+1080p copies and English+Original language profile (v2)
  * Version 155: Stale-missing unmonitor — failed_content_search_attempts on movies/series + settings
  * Version 156: smart_list_items auto-add attempt tracking (auto_add_attempts, last_auto_add_attempt_at, last_auto_add_error)
+ * Version 157: blocklist tmdb_id/media_type + triggers so entries survive movie/series deletion
  */
-export const CURRENT_SCHEMA_VERSION = 156;
+export const CURRENT_SCHEMA_VERSION = 157;
 
 export const SYSTEM_LIBRARY_SEEDS = [
 	{
@@ -945,7 +946,9 @@ const TABLE_DEFINITIONS: string[] = [
 		"size" integer,
 		"protocol" text,
 		"created_at" text,
-		"expires_at" text
+		"expires_at" text,
+		"tmdb_id" integer,
+		"media_type" text
 	)`,
 
 	`CREATE TABLE IF NOT EXISTS "blocked_media" (
@@ -1663,6 +1666,7 @@ const INDEX_DEFINITIONS: string[] = [
 	`CREATE INDEX IF NOT EXISTS "idx_blocklist_movie" ON "blocklist" ("movie_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_blocklist_series" ON "blocklist" ("series_id")`,
 	`CREATE INDEX IF NOT EXISTS "idx_blocklist_infohash" ON "blocklist" ("info_hash")`,
+	`CREATE INDEX IF NOT EXISTS "idx_blocklist_tmdb" ON "blocklist" ("tmdb_id", "media_type")`,
 	`CREATE INDEX IF NOT EXISTS "idx_cinephage_api_modules_enabled" ON "cinephage_api_modules" ("enabled")`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS "idx_blocked_media_unique" ON "blocked_media" ("tmdb_id", "media_type")`,
 	`CREATE INDEX IF NOT EXISTS "idx_monitoring_history_task_history" ON "monitoring_history" ("task_history_id")`,

@@ -1797,12 +1797,17 @@ export const blocklist = sqliteTable(
 		protocol: text('protocol'), // 'torrent' | 'usenet' | 'streaming'
 		// Timestamps
 		createdAt: text('created_at').$defaultFn(() => new Date().toISOString()),
-		expiresAt: text('expires_at') // Optional expiration (null = permanent)
+		expiresAt: text('expires_at'), // Optional expiration (null = permanent)
+		// Set when the movie/series is deleted (trigger, migration v157) so the entry
+		// survives and still applies if the same title is added back to the library
+		tmdbId: integer('tmdb_id'),
+		mediaType: text('media_type') // 'movie' | 'tv'
 	},
 	(table) => [
 		index('idx_blocklist_movie').on(table.movieId),
 		index('idx_blocklist_series').on(table.seriesId),
-		index('idx_blocklist_infohash').on(table.infoHash)
+		index('idx_blocklist_infohash').on(table.infoHash),
+		index('idx_blocklist_tmdb').on(table.tmdbId, table.mediaType)
 	]
 );
 

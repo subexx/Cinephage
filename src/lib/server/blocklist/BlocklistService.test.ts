@@ -27,6 +27,10 @@ vi.mock('$lib/server/db/index.js', () => ({
 
 const { blocklistService } = await import('./BlocklistService.js');
 
+afterAll(() => {
+	destroyTestDb(testDb);
+});
+
 const MOVIE_ID = 'movie-1';
 const SERIES_ID = 'series-1';
 
@@ -60,10 +64,6 @@ describe('BlocklistService.getBlockedIdentifiers', () => {
 			.run();
 	});
 
-	afterAll(() => {
-		destroyTestDb(testDb);
-	});
-
 	it('returns hashes and titles scoped to the given movie', async () => {
 		insertEntry({
 			movieId: MOVIE_ID,
@@ -79,9 +79,9 @@ describe('BlocklistService.getBlockedIdentifiers', () => {
 		const { blockedHashes, blockedTitles } = await blocklistService.getBlockedIdentifiers(MOVIE_ID);
 
 		expect(blockedHashes.has('HASH_A')).toBe(true);
-		expect(blockedTitles.has('Movie.Release.A')).toBe(true);
+		expect(blockedTitles.has('movie.release.a')).toBe(true);
 		expect(blockedHashes.has('HASH_OTHER')).toBe(false);
-		expect(blockedTitles.has('Other.Release')).toBe(false);
+		expect(blockedTitles.has('other.release')).toBe(false);
 	});
 
 	it('scopes to the given series when seriesId is provided', async () => {
@@ -97,7 +97,7 @@ describe('BlocklistService.getBlockedIdentifiers', () => {
 		);
 
 		expect(blockedHashes.has('SERIES_HASH')).toBe(true);
-		expect(blockedTitles.has('Series.Release')).toBe(true);
+		expect(blockedTitles.has('series.release')).toBe(true);
 	});
 
 	it('excludes expired entries but keeps never-expiring ones', async () => {
@@ -118,9 +118,9 @@ describe('BlocklistService.getBlockedIdentifiers', () => {
 		const { blockedHashes, blockedTitles } = await blocklistService.getBlockedIdentifiers(MOVIE_ID);
 
 		expect(blockedHashes.has('PERMANENT_HASH')).toBe(true);
-		expect(blockedTitles.has('Permanent.Release')).toBe(true);
+		expect(blockedTitles.has('permanent.release')).toBe(true);
 		expect(blockedHashes.has('EXPIRED_HASH')).toBe(false);
-		expect(blockedTitles.has('Expired.Release')).toBe(false);
+		expect(blockedTitles.has('expired.release')).toBe(false);
 	});
 
 	it('includes entries whose expiry is still in the future', async () => {
@@ -183,5 +183,76 @@ describe('BlocklistService.getBlockedIdentifiers', () => {
 			{ movieId: MOVIE_ID }
 		);
 		expect(blocked.blocked).toBe(true);
+	});
+});
+
+// 2026-10-17: a blocklisted usenet release was grabbed again from the other
+// indexer, and deleting the movie wiped its blocklist so a re-add grabbed the
+// same file.
+describe('BlocklistService release blocking across indexers and re-adds', () => {
+	beforeEach(() => {
+		testDb.db.delete(blocklist).run();
+		testDb.db.delete(movies).run();
+		testDb.db.delete(series).run();
+		testDb.db
+			.insert(movies)
+			.values({ id: MOVIE_ID, tmdbId: 101, title: 'Aasha', path: '/media/aasha' })
+			.run();
+	});
+
+	const release = {
+		title: 'Aashan.2026.1080p.WEB-DL.DDP5.1.H.264-GROUP',
+		indexerId: undefined as string | undefined
+	};
+
+	it('blocks a usenet release by name on every indexer, case-insensitively', async () => {
+		insertEntry({ movieId: MOVIE_ID, sourceTitle: release.title, title: release.title });
+
+		const sameIndexerless = await blocklistService.isBlocklisted(
+			{ ...release, title: release.title.toLowerCase() },
+			{ movieId: MOVIE_ID }
+		);
+		expect(sameIndexerless.blocked).toBe(true);
+
+		// indexer_id references the indexers table; a release from any indexer is
+		// still the same post, so the indexer must not scope a title block
+		const otherIndexer = await blocklistService.isBlocklisted(
+			{ ...release, indexerId: 'nzbfinder' },
+			{ movieId: MOVIE_ID }
+		);
+		expect(otherIndexer.blocked).toBe(true);
+	});
+
+	it('keeps blocklist entries when the movie is deleted and applies them after a re-add', async () => {
+		insertEntry({ movieId: MOVIE_ID, sourceTitle: release.title, title: release.title });
+
+		testDb.db.delete(movies).run();
+
+		const [kept] = testDb.db.select().from(blocklist).all();
+		expect(kept).toMatchObject({ movieId: null, tmdbId: 101, mediaType: 'movie' });
+
+		// Same movie added back (new library id, same TMDB id)
+		testDb.db
+			.insert(movies)
+			.values({ id: 'movie-readded', tmdbId: 101, title: 'Aasha', path: '/media/aasha' })
+			.run();
+
+		const check = await blocklistService.isBlocklisted(release, { movieId: 'movie-readded' });
+		expect(check.blocked).toBe(true);
+
+		const { blockedTitles } = await blocklistService.getBlockedIdentifiers('movie-readded');
+		expect(blockedTitles.has(release.title.toLowerCase())).toBe(true);
+	});
+
+	it('does not apply a detached entry to a different movie', async () => {
+		insertEntry({ movieId: MOVIE_ID, sourceTitle: release.title, title: release.title });
+		testDb.db.delete(movies).run();
+		testDb.db
+			.insert(movies)
+			.values({ id: 'other', tmdbId: 999, title: 'Other', path: '/media/other' })
+			.run();
+
+		const check = await blocklistService.isBlocklisted(release, { movieId: 'other' });
+		expect(check.blocked).toBe(false);
 	});
 });
