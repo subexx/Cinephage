@@ -42,6 +42,12 @@ const DEFAULT_INTERVALS = {
 } as const;
 
 /**
+ * Default missing-search budget per run. Large auto-added libraries otherwise search
+ * every missing item each run and exhaust indexer daily API limits.
+ */
+const DEFAULT_MISSING_SEARCH_MAX_ITEMS_PER_RUN = 100;
+
+/**
  * Minimum interval in hours (prevent overwhelming indexers)
  */
 const MIN_INTERVAL_HOURS = 0.25; // 15 minutes
@@ -103,6 +109,8 @@ export interface MonitoringSettings {
 	staleMissingUnmonitorEnabled: boolean;
 	staleMissingMinAgeDays: number;
 	staleMissingMinFailedSearches: number;
+	// Missing search budget per run (0 = unlimited); protects indexer API limits
+	missingSearchMaxItemsPerRun: number;
 }
 
 /**
@@ -338,6 +346,10 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 			staleMissingMinAgeDays: parseFloat(settingsMap.get('stale_missing_min_age_days') || '365'),
 			staleMissingMinFailedSearches: parseFloat(
 				settingsMap.get('stale_missing_min_failed_searches') || '5'
+			),
+			missingSearchMaxItemsPerRun: parseFloat(
+				settingsMap.get('missing_search_max_items_per_run') ||
+					String(DEFAULT_MISSING_SEARCH_MAX_ITEMS_PER_RUN)
 			)
 		};
 	}
@@ -440,6 +452,12 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 			updates.push({
 				key: 'stale_missing_min_failed_searches',
 				value: String(settings.staleMissingMinFailedSearches)
+			});
+		}
+		if (settings.missingSearchMaxItemsPerRun !== undefined) {
+			updates.push({
+				key: 'missing_search_max_items_per_run',
+				value: String(settings.missingSearchMaxItemsPerRun)
 			});
 		}
 
@@ -835,7 +853,8 @@ export class MonitoringScheduler extends EventEmitter implements BackgroundServi
 				const { executeMissingContentTask } = await import('./tasks/MissingContentTask.js');
 				return await executeMissingContentTask(ctx, {
 					ignoreCooldown: executionMode === 'manual',
-					cooldownHours: settings.missingSearchIntervalHours
+					cooldownHours: settings.missingSearchIntervalHours,
+					maxSearches: settings.missingSearchMaxItemsPerRun
 				});
 			}
 			case 'upgrade': {

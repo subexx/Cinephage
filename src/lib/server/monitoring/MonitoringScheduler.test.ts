@@ -39,7 +39,8 @@ const settings: MonitoringSettings = {
 	stalledDownloadBlocklistHours: 72,
 	staleMissingUnmonitorEnabled: true,
 	staleMissingMinAgeDays: 365,
-	staleMissingMinFailedSearches: 5
+	staleMissingMinFailedSearches: 5,
+	missingSearchMaxItemsPerRun: 100
 };
 
 const baseResult = {
@@ -71,7 +72,8 @@ describe('MonitoringScheduler cooldown propagation', () => {
 
 		expect(executeMissingContentTaskMock).toHaveBeenCalledWith(null, {
 			ignoreCooldown: false,
-			cooldownHours: settings.missingSearchIntervalHours
+			cooldownHours: settings.missingSearchIntervalHours,
+			maxSearches: settings.missingSearchMaxItemsPerRun
 		});
 		expect(executeUpgradeMonitorTaskMock).toHaveBeenCalledWith(null, {
 			ignoreCooldown: false,
@@ -95,7 +97,8 @@ describe('MonitoringScheduler cooldown propagation', () => {
 
 		expect(executeMissingContentTaskMock).toHaveBeenCalledWith(null, {
 			ignoreCooldown: true,
-			cooldownHours: settings.missingSearchIntervalHours
+			cooldownHours: settings.missingSearchIntervalHours,
+			maxSearches: settings.missingSearchMaxItemsPerRun
 		});
 		expect(executeUpgradeMonitorTaskMock).toHaveBeenCalledWith(null, {
 			ignoreCooldown: true,

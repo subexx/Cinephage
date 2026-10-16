@@ -27,6 +27,25 @@
 	// svelte-ignore state_referenced_locally
 	let staleMinFailed = $state(data.staleMissingSettings.staleMissingMinFailedSearches);
 	let staleSaving = $state(false);
+	// svelte-ignore state_referenced_locally
+	let missingMaxPerRun = $state(data.missingSearchMaxItemsPerRun);
+	let missingSaving = $state(false);
+
+	async function saveMissingSearchBudget() {
+		missingSaving = true;
+		errorMessage = null;
+		try {
+			await updateMonitoringSettings({
+				missingSearchMaxItemsPerRun: Math.max(0, Math.floor(Number(missingMaxPerRun) || 0))
+			});
+			successMessage = 'Missing search budget saved';
+			autoDismissSuccess();
+		} catch (err) {
+			errorMessage = err instanceof Error ? err.message : 'Failed to save missing search budget';
+		} finally {
+			missingSaving = false;
+		}
+	}
 
 	async function saveStaleMissingSettings() {
 		staleSaving = true;
@@ -350,6 +369,33 @@
 			>
 		</div>
 	{/if}
+
+	<SettingsSection
+		title="Missing Search Budget"
+		description="Maximum indexer searches per Missing Content run, for movies and for series separately (a series uses one search per missing season). Least recently searched items go first, so each run continues through the backlog. Keeps large auto-added libraries within indexer API limits. 0 = unlimited."
+	>
+		<div class="flex flex-col gap-4">
+			<label class="form-control w-full sm:max-w-xs">
+				<span class="label-text mb-1">Max searches per run</span>
+				<input
+					type="number"
+					class="input-bordered input w-full input-sm"
+					min="0"
+					step="1"
+					bind:value={missingMaxPerRun}
+				/>
+			</label>
+			<div>
+				<button
+					class="btn btn-primary btn-sm"
+					disabled={missingSaving}
+					onclick={saveMissingSearchBudget}
+				>
+					{missingSaving ? 'Saving…' : 'Save'}
+				</button>
+			</div>
+		</div>
+	</SettingsSection>
 
 	<SettingsSection
 		title="Stale Missing"

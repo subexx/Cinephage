@@ -54,8 +54,19 @@ import { externalIdResolver } from './ExternalIdResolver.js';
 import { presetService } from './presets/PresetService.js';
 import type { ExternalListItem } from './providers/types.js';
 
-/** Max items auto-added per list per refresh (keeps indexers/TMDB from being flooded) */
-const AUTO_ADD_BATCH_SIZE = 25;
+/**
+ * Max items auto-added per list per run. "Add only" is cheap (TMDB lookups + DB rows;
+ * searching is left to the budgeted Missing Content task). "Add and search" fires an
+ * indexer search for every add, so it stays small.
+ */
+const AUTO_ADD_BATCH_SIZE_ADD_ONLY = 200;
+const AUTO_ADD_BATCH_SIZE_ADD_AND_SEARCH = 10;
+
+function autoAddBatchSize(list: SmartListRecord): number {
+	return list.autoAddBehavior === 'add_and_search'
+		? AUTO_ADD_BATCH_SIZE_ADD_AND_SEARCH
+		: AUTO_ADD_BATCH_SIZE_ADD_ONLY;
+}
 /** Rows scanned per page while looking for eligible auto-add candidates */
 const AUTO_ADD_SCAN_PAGE = 200;
 /** Failed attempts before an item backs off to the slow retry window */
@@ -698,6 +709,59 @@ export class SmartListService {
 				errorMessage
 			};
 		}
+	}
+
+	/**
+	 * Keep auto-adding from lists between refreshes. A refresh re-syncs the list from its
+	 * source (daily by default) and adds one batch; without this, a 25k item list would
+	 * add one batch per day. Runs from the hourly smart list task and only touches lists
+	 * that are not refreshing right now.
+	 */
+	async drainAutoAddBacklog(skipListIds: Set<string> = new Set()): Promise<number> {
+		const lists = await db.query.smartLists.findMany({
+			where: and(eq(smartLists.enabled, true), sql`${smartLists.autoAddBehavior} != 'disabled'`)
+		});
+
+		let totalAdded = 0;
+		for (const list of lists) {
+			if (!list.rootFolderId || skipListIds.has(list.id) || this.refreshingIds.has(list.id)) {
+				continue;
+			}
+
+			this.refreshingIds.add(list.id);
+			try {
+				const { added } = await this.autoAddItems(list);
+				if (added === 0) continue;
+				totalAdded += added;
+
+				const [inLibrary] = await db
+					.select({ count: sql<number>`count(*)` })
+					.from(smartListItems)
+					.where(and(eq(smartListItems.smartListId, list.id), eq(smartListItems.inLibrary, true)));
+				await db
+					.update(smartLists)
+					.set({
+						itemsInLibrary: inLibrary?.count ?? 0,
+						itemsAutoAdded: sql`coalesce(${smartLists.itemsAutoAdded}, 0) + ${added}`,
+						updatedAt: new Date().toISOString()
+					})
+					.where(eq(smartLists.id, list.id));
+
+				logger.info(
+					{ listId: list.id, listName: list.name, added },
+					'[SmartListService] Auto-added backlog items between refreshes'
+				);
+			} catch (error) {
+				logger.error(
+					{ err: error, listId: list.id },
+					'[SmartListService] Failed to auto-add backlog items'
+				);
+			} finally {
+				this.refreshingIds.delete(list.id);
+			}
+		}
+
+		return totalAdded;
 	}
 
 	async refreshAllDueLists(): Promise<RefreshResult[]> {
@@ -1509,6 +1573,7 @@ export class SmartListService {
 		const blockedIds = await getBlockedTmdbIdSet(mediaType);
 		const excludedIds = new Set(list.excludedTmdbIds ?? []);
 		const retryBefore = Date.now() - AUTO_ADD_FAILURE_RETRY_MS;
+		const batchSize = autoAddBatchSize(list);
 
 		const isEligible = (item: SmartListItemRecord): boolean => {
 			if (item.isExcluded || excludedIds.has(item.tmdbId) || blockedIds.has(item.tmdbId)) {
@@ -1523,7 +1588,7 @@ export class SmartListService {
 		};
 
 		const selected: SmartListItemRecord[] = [];
-		for (let offset = 0; selected.length < AUTO_ADD_BATCH_SIZE; offset += AUTO_ADD_SCAN_PAGE) {
+		for (let offset = 0; selected.length < batchSize; offset += AUTO_ADD_SCAN_PAGE) {
 			const page = await db.query.smartListItems.findMany({
 				where: and(
 					eq(smartListItems.smartListId, list.id),
@@ -1538,7 +1603,7 @@ export class SmartListService {
 			for (const item of page) {
 				if (isEligible(item)) {
 					selected.push(item);
-					if (selected.length >= AUTO_ADD_BATCH_SIZE) break;
+					if (selected.length >= batchSize) break;
 				}
 			}
 

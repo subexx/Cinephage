@@ -20,7 +20,7 @@ import {
 	downloadQueue,
 	settings
 } from '$lib/server/db/schema.js';
-import { eq, and, lte, gte, inArray, isNotNull } from 'drizzle-orm';
+import { eq, and, lte, gte, inArray, isNotNull, asc, sql } from 'drizzle-orm';
 import { getIndexerManager } from '$lib/server/indexers/IndexerManager.js';
 
 import {
@@ -179,6 +179,17 @@ interface MissingSearchOptions {
 	 * Typically derived from the scheduled task interval.
 	 */
 	cooldownHours?: number;
+	/**
+	 * Max indexer searches this run (movies: one per movie; series: one per missing
+	 * season). Items are taken least-recently-searched first, so a capped run picks up
+	 * where the previous one stopped. 0 / undefined = unlimited.
+	 */
+	maxSearches?: number;
+}
+
+/** Remaining search budget for a run; Infinity when uncapped */
+function initialSearchBudget(maxSearches: number | undefined): number {
+	return maxSearches && maxSearches > 0 ? maxSearches : Infinity;
 }
 
 /**
@@ -552,6 +563,7 @@ export class MonitoringSearchService {
 		const results: ItemSearchResult[] = [];
 		const ignoreCooldown = options.ignoreCooldown ?? false;
 		const cooldownHours = options.cooldownHours;
+		let budget = initialSearchBudget(options.maxSearches);
 
 		try {
 			// Check for cancellation
@@ -560,9 +572,10 @@ export class MonitoringSearchService {
 				throw new TaskCancelledException('search');
 			}
 
-			// Query monitored movies without files
+			// Query monitored movies without files, never-searched first, then oldest search
 			const missingMovies = await db.query.movies.findMany({
 				where: and(eq(movies.monitored, true), eq(movies.hasFile, false)),
+				orderBy: [sql`${movies.lastSearchTime} IS NOT NULL`, asc(movies.lastSearchTime)],
 				with: {
 					scoringProfile: true
 				}
@@ -676,6 +689,15 @@ export class MonitoringSearchService {
 					continue;
 				}
 
+				if (budget <= 0) {
+					logger.info(
+						{ maxSearches: options.maxSearches },
+						'[MonitoringSearch] Missing movie search budget used up for this run'
+					);
+					break;
+				}
+				budget--;
+
 				// Update lastSearchTime before searching
 				await db
 					.update(movies)
@@ -697,7 +719,9 @@ export class MonitoringSearchService {
 		try {
 			const bucketResults = await this.searchMissingMovieQualityBuckets(signal, {
 				ignoreCooldown,
-				cooldownHours
+				cooldownHours,
+				// Leftover budget; 0 tells the bucket pass the budget is used up
+				maxSearches: Number.isFinite(budget) ? budget : undefined
 			});
 			results.push(...bucketResults);
 		} catch (error) {
@@ -718,10 +742,13 @@ export class MonitoringSearchService {
 	): Promise<ItemSearchResult[]> {
 		const { ignoreCooldown = false, cooldownHours } = options;
 		const results: ItemSearchResult[] = [];
+		let budget = options.maxSearches === undefined ? Infinity : options.maxSearches;
+		if (budget <= 0) return results;
 
 		// Monitored movies that have declared desired qualities (multi-quality candidates)
 		const candidates = await db.query.movies.findMany({
 			where: and(eq(movies.monitored, true), isNotNull(movies.desiredQualities)),
+			orderBy: [sql`${movies.lastSearchTime} IS NOT NULL`, asc(movies.lastSearchTime)],
 			with: { scoringProfile: true }
 		});
 
@@ -758,6 +785,9 @@ export class MonitoringSearchService {
 			const filled = getFilledResolutions(files);
 			const unfilled = effective.filter((r) => !filled.includes(r));
 			if (unfilled.length === 0) continue;
+
+			if (budget <= 0) break;
+			budget--;
 
 			// Update lastSearchTime
 			await db
@@ -1013,8 +1043,10 @@ export class MonitoringSearchService {
 				lte(episodes.airDate, todayDateString()) // Only aired episodes
 			);
 
+			// Never-searched first, then oldest search, so a capped run moves through the backlog
 			const missingEpisodes = await db.query.episodes.findMany({
 				where: query,
+				orderBy: [sql`${episodes.lastSearchTime} IS NOT NULL`, asc(episodes.lastSearchTime)],
 				with: {
 					series: {
 						with: {
@@ -1149,6 +1181,7 @@ export class MonitoringSearchService {
 				await this.shouldApplyRuTrackerEpisodePointerPolicy();
 
 			// Process each series with cascading strategy
+			let budget = initialSearchBudget(options.maxSearches);
 			for (const [currentSeriesId, seasonMap] of episodesBySeriesAndSeason) {
 				// Check for cancellation before each series
 				if (signal?.aborted) {
@@ -1158,6 +1191,16 @@ export class MonitoringSearchService {
 
 				const seriesData = seriesDataMap.get(currentSeriesId);
 				if (!seriesData) continue;
+
+				// At least one search per missing season (pack first, episodes as fallback)
+				if (budget <= 0) {
+					logger.info(
+						{ maxSearches: options.maxSearches },
+						'[MonitoringSearch] Missing episode search budget used up for this run'
+					);
+					break;
+				}
+				budget -= seasonMap.size;
 
 				const seriesResults = await this.searchSeriesWithCascadingStrategy(
 					seriesData,

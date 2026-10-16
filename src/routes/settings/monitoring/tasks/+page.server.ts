@@ -84,6 +84,7 @@ export const load: PageServerLoad = async ({ depends }) => {
 			staleMissingUnmonitorEnabled: monitoringSettings.staleMissingUnmonitorEnabled,
 			staleMissingMinAgeDays: monitoringSettings.staleMissingMinAgeDays,
 			staleMissingMinFailedSearches: monitoringSettings.staleMissingMinFailedSearches
-		}
+		},
+		missingSearchMaxItemsPerRun: monitoringSettings.missingSearchMaxItemsPerRun
 	};
 };

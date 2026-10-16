@@ -39,7 +39,10 @@ afterAll(() => {
 	destroyTestDb(testDb);
 });
 
-async function createList(excludedTmdbIds: number[] = []): Promise<SmartListRecord> {
+async function createList(
+	excludedTmdbIds: number[] = [],
+	autoAddBehavior: 'add_only' | 'add_and_search' = 'add_and_search'
+): Promise<SmartListRecord> {
 	const [list] = await testDb.db
 		.insert(smartLists)
 		.values({
@@ -47,7 +50,8 @@ async function createList(excludedTmdbIds: number[] = []): Promise<SmartListReco
 			name: `List ${randomUUID()}`,
 			mediaType: 'movie',
 			filters: {},
-			excludedTmdbIds
+			excludedTmdbIds,
+			autoAddBehavior
 		})
 		.returning();
 	return list;
@@ -76,15 +80,25 @@ describe('SmartListService auto-add candidate selection', () => {
 		mocks.getBlockedTmdbIdSet.mockResolvedValue(new Set<number>());
 	});
 
-	it('takes the highest ranked items, capped at the batch size', async () => {
+	it('takes the highest ranked items, capped at 10 for add-and-search lists', async () => {
 		const list = await createList();
 		await addItems(list.id, 40);
 
 		const selected = await service.selectAutoAddCandidates(list, 'movie');
 
 		expect(selected.map((item) => item.tmdbId)).toEqual(
-			Array.from({ length: 25 }, (_, i) => 1000 + i)
+			Array.from({ length: 10 }, (_, i) => 1000 + i)
 		);
+	});
+
+	it('uses a large batch for add-only lists, which do not search on add', async () => {
+		const list = await createList([], 'add_only');
+		await addItems(list.id, 450);
+
+		const selected = await service.selectAutoAddCandidates(list, 'movie');
+
+		expect(selected).toHaveLength(200);
+		expect(selected[199].tmdbId).toBe(1199);
 	});
 
 	it('skips excluded and blocked items instead of letting them fill the batch', async () => {
@@ -97,7 +111,7 @@ describe('SmartListService auto-add candidate selection', () => {
 
 		const selected = await service.selectAutoAddCandidates(list, 'movie');
 
-		expect(selected).toHaveLength(25);
+		expect(selected).toHaveLength(10);
 		expect(selected[0].tmdbId).toBe(1030);
 	});
 

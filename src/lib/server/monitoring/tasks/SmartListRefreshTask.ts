@@ -30,14 +30,21 @@ export async function executeSmartListRefreshTask(
 	try {
 		const results = await service.refreshAllDueLists();
 
+		// Lists that weren't due still drain their auto-add backlog every run
+		ctx?.checkCancelled();
+		const backlogAdded = await service.drainAutoAddBacklog(
+			new Set(results.map((r) => r.smartListId))
+		);
+
 		const itemsProcessed = results.length;
-		const itemsGrabbed = results.reduce((sum, r) => sum + r.itemsAutoAdded, 0);
+		const itemsGrabbed = results.reduce((sum, r) => sum + r.itemsAutoAdded, 0) + backlogAdded;
 		const errors = results.filter((r) => r.status === 'failed').length;
 
 		logger.info(
 			{
 				listsRefreshed: itemsProcessed,
 				itemsAutoAdded: itemsGrabbed,
+				backlogAdded,
 				errors
 			},
 			'[SmartListRefreshTask] Completed'

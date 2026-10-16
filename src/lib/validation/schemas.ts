@@ -2637,7 +2637,8 @@ export const monitoringSettingsUpdateSchema = z.object({
 	stalledDownloadBlocklistHours: z.number().min(0).optional(),
 	staleMissingUnmonitorEnabled: z.boolean().optional(),
 	staleMissingMinAgeDays: z.number().min(1).optional(),
-	staleMissingMinFailedSearches: z.number().min(1).optional()
+	staleMissingMinFailedSearches: z.number().min(1).optional(),
+	missingSearchMaxItemsPerRun: z.number().int().min(0).optional()
 });
 
 // ============================================================================

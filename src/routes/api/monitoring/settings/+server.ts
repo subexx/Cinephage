@@ -32,7 +32,8 @@ export const GET: RequestHandler = async (event) => {
 				stalledDownloadBlocklistHours: fullSettings.stalledDownloadBlocklistHours,
 				staleMissingUnmonitorEnabled: fullSettings.staleMissingUnmonitorEnabled,
 				staleMissingMinAgeDays: fullSettings.staleMissingMinAgeDays,
-				staleMissingMinFailedSearches: fullSettings.staleMissingMinFailedSearches
+				staleMissingMinFailedSearches: fullSettings.staleMissingMinFailedSearches,
+				missingSearchMaxItemsPerRun: fullSettings.missingSearchMaxItemsPerRun
 			},
 			status: {
 				tasks: status.tasks
@@ -99,7 +100,8 @@ export const PUT: RequestHandler = async (event) => {
 				stalledDownloadBlocklistHours: fullUpdatedSettings.stalledDownloadBlocklistHours,
 				staleMissingUnmonitorEnabled: fullUpdatedSettings.staleMissingUnmonitorEnabled,
 				staleMissingMinAgeDays: fullUpdatedSettings.staleMissingMinAgeDays,
-				staleMissingMinFailedSearches: fullUpdatedSettings.staleMissingMinFailedSearches
+				staleMissingMinFailedSearches: fullUpdatedSettings.staleMissingMinFailedSearches,
+				missingSearchMaxItemsPerRun: fullUpdatedSettings.missingSearchMaxItemsPerRun
 			},
 			status: {
 				tasks: status.tasks

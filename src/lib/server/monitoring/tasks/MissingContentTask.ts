@@ -26,6 +26,11 @@ interface MissingContentTaskOptions {
 	 * Typically derived from scheduled interval.
 	 */
 	cooldownHours?: number;
+	/**
+	 * Max indexer searches per run, applied separately to movies and to series.
+	 * 0 / undefined = unlimited.
+	 */
+	maxSearches?: number;
 }
 
 type SearchItemStatus = 'grabbed' | 'error' | 'found' | 'no_results';
@@ -79,7 +84,8 @@ export async function executeMissingContentTask(
 		logger.info('[MissingContentTask] Searching for missing movies');
 		const movieResults = await monitoringSearchService.searchMissingMovies(ctx?.abortSignal, {
 			ignoreCooldown: options.ignoreCooldown,
-			cooldownHours: options.cooldownHours
+			cooldownHours: options.cooldownHours,
+			maxSearches: options.maxSearches
 		});
 
 		itemsProcessed += movieResults.summary.searched;
@@ -171,7 +177,8 @@ export async function executeMissingContentTask(
 		logger.info('[MissingContentTask] Searching for missing episodes');
 		const episodeResults = await monitoringSearchService.searchMissingEpisodes(ctx?.abortSignal, {
 			ignoreCooldown: options.ignoreCooldown,
-			cooldownHours: options.cooldownHours
+			cooldownHours: options.cooldownHours,
+			maxSearches: options.maxSearches
 		});
 
 		itemsProcessed += episodeResults.summary.searched;
