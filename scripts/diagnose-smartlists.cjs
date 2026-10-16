@@ -6,6 +6,7 @@
  *
  * Opens the database read-only and prints aggregate stats only.
  */
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS so it can be piped into `node -` */
 const path = require('path');
 const Database = require(
 	path.join(process.env.APP_DIR || '/app', 'node_modules', 'better-sqlite3')
