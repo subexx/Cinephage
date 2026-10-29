@@ -85,6 +85,22 @@ describe('LanguageStage (require-mode gate)', () => {
 		expect(result.accepted).toBe(true);
 	});
 
+	it('rejects an untagged title for a non-English original without an English fallback', async () => {
+		resolveMock.mockResolvedValue(
+			preference({ mode: 'require', preferOriginal: true, originalLanguage: 'ml', languages: [] })
+		);
+		const result = await stage.evaluate(ctx('Titans.2026.1080p.WEB-DL.x264-GROUP'));
+		expect(result.accepted).toBe(false);
+	});
+
+	it('accepts an untagged title for a non-English original when English is a fallback', async () => {
+		resolveMock.mockResolvedValue(
+			preference({ mode: 'require', preferOriginal: true, originalLanguage: 'ml', languages: ['en'] })
+		);
+		const result = await stage.evaluate(ctx('Titans.2026.1080p.WEB-DL.x264-GROUP'));
+		expect(result.accepted).toBe(true);
+	});
+
 	it('skips when the preference has no expectation at all', async () => {
 		resolveMock.mockResolvedValue(preference({ mode: 'require', languages: [] }));
 		const result = await stage.evaluate(ctx('Movie.2026.GERMAN.1080p.x264-GROUP'));

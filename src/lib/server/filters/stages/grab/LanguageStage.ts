@@ -41,8 +41,18 @@ export class LanguageStage implements DecisionStage<GrabDecisionContext> {
 
 		const evidence = extractLanguages(ctx.release.title).languages;
 		if (evidence.length === 0) {
-			// Absence of evidence is never a rejection.
-			return { accepted: true };
+			// Untagged usually means English. Reject only when the original is
+			// non-English and English isn't an accepted fallback.
+			const untaggedLikelyWrong =
+				hasOriginalSignal &&
+				preference.originalLanguage !== 'en' &&
+				!preference.languages.includes('en');
+			if (!untaggedLikelyWrong) return { accepted: true };
+			return {
+				accepted: false,
+				reason: `Audio language requirement not met: untagged title, wanted [${[preference.originalLanguage, ...preference.languages].join(', ')}]`,
+				details: { rejectionType: 'language_requirement', evidence, mode: preference.mode }
+			};
 		}
 
 		const { bucket } = rankLanguageEvidenceSet(evidence, preference);
