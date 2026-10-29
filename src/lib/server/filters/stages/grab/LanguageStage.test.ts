@@ -95,7 +95,12 @@ describe('LanguageStage (require-mode gate)', () => {
 
 	it('accepts an untagged title for a non-English original when English is a fallback', async () => {
 		resolveMock.mockResolvedValue(
-			preference({ mode: 'require', preferOriginal: true, originalLanguage: 'ml', languages: ['en'] })
+			preference({
+				mode: 'require',
+				preferOriginal: true,
+				originalLanguage: 'ml',
+				languages: ['en']
+			})
 		);
 		const result = await stage.evaluate(ctx('Titans.2026.1080p.WEB-DL.x264-GROUP'));
 		expect(result.accepted).toBe(true);
