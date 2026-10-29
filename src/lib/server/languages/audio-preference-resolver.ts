@@ -46,12 +46,27 @@ export function materializeAudioPreference(
 		});
 
 	const rawOriginal = originalLanguage?.trim();
+	const original = rawOriginal ? normalizeLanguageCode(rawOriginal) : null;
+	// Fork: originals listed in ORIGINAL_AUDIO_LANGS (e.g. "ml,hi,ta,te")
+	// require their original audio regardless of the profile.
+	if (original && originalAudioLangs().has(original)) {
+		return { preferOriginal: true, languages: [], originalLanguage: original, mode: 'require' };
+	}
 	return {
 		preferOriginal: base.preferOriginal,
 		languages,
-		originalLanguage: rawOriginal ? normalizeLanguageCode(rawOriginal) : null,
+		originalLanguage: original,
 		mode: base.mode ?? 'prefer'
 	};
+}
+
+function originalAudioLangs(): Set<string> {
+	return new Set(
+		(process.env.ORIGINAL_AUDIO_LANGS ?? '')
+			.split(',')
+			.map((tag) => normalizeLanguageCode(tag.trim()))
+			.filter(Boolean)
+	);
 }
 
 /**
