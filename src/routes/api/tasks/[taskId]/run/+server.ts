@@ -166,7 +166,11 @@ export const POST: RequestHandler = async (event) => {
 			headers: {
 				'Content-Type': 'application/json',
 				// Forward relevant headers from original request
-				...(request.headers.get('cookie') ? { cookie: request.headers.get('cookie')! } : {})
+				...(request.headers.get('cookie') ? { cookie: request.headers.get('cookie')! } : {}),
+				// Fork: API-key callers (e.g. SuFlix Manager) must authenticate the inner call too
+				...(request.headers.get('x-api-key')
+					? { 'x-api-key': request.headers.get('x-api-key')! }
+					: {})
 			},
 			body: Object.keys(requestBody).length > 0 ? JSON.stringify(requestBody) : undefined
 		});
