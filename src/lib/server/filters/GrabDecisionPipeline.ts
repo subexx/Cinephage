@@ -8,6 +8,7 @@ import type {
 } from './stages/grab/types.js';
 import { BlocklistStage } from './stages/grab/BlocklistStage.js';
 import { IdentityStage } from './stages/grab/IdentityStage.js';
+import { AdultReleaseStage } from './stages/grab/AdultReleaseStage.js';
 import { ScoringStage } from './stages/grab/ScoringStage.js';
 import { BannedFormatStage } from './stages/grab/BannedFormatStage.js';
 import { SizeValidationStage } from './stages/grab/SizeValidationStage.js';
@@ -25,6 +26,7 @@ import { RequiredFormatsStage } from './stages/grab/RequiredFormatsStage.js';
 export class GrabDecisionPipeline {
 	private stages = [
 		new IdentityStage(),
+		new AdultReleaseStage(),
 		new BlocklistStage(),
 		new ScoringStage(),
 		new BannedFormatStage(),

@@ -201,6 +201,7 @@ describe('GrabDecisionPipeline', () => {
 		const stageNames = decision.audit.stages.map((s) => s.name);
 		expect(stageNames).toEqual([
 			'identity',
+			'adultRelease',
 			'blocklist',
 			'scoring',
 			'bannedFormat',
