@@ -5,6 +5,7 @@ import { libraryJobWorker } from '$lib/server/library/jobs/LibraryJobWorker.js';
 import { isFFprobeAvailable, getFFprobeVersion } from '$lib/server/library/ffprobe.js';
 import { getDownloadMonitor } from '$lib/server/downloadClients/monitoring';
 import { getImportService } from '$lib/server/downloadClients/import/ImportService.js';
+import { startLibraryVerificationSchedule } from '$lib/server/library/file-verification.js';
 import { getMonitoringScheduler } from '$lib/server/monitoring/MonitoringScheduler.js';
 import { getExternalIdService } from '$lib/server/services/ExternalIdService.js';
 import { getDataRepairService } from '$lib/server/services/DataRepairService.js';
@@ -96,6 +97,7 @@ async function initializeServices(): Promise<void> {
 			serviceManager.register(downloadMonitor);
 
 			getImportService().start();
+			startLibraryVerificationSchedule();
 
 			const monitoringScheduler = getMonitoringScheduler();
 			serviceManager.register(monitoringScheduler);

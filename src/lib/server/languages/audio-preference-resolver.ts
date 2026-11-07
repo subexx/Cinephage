@@ -60,7 +60,7 @@ export function materializeAudioPreference(
 	};
 }
 
-function originalAudioLangs(): Set<string> {
+export function originalAudioLangs(): Set<string> {
 	return new Set(
 		(process.env.ORIGINAL_AUDIO_LANGS ?? '')
 			.split(',')

@@ -229,6 +229,22 @@ const MAINTENANCE_TASKS: UnifiedTaskDefinition[] = [
 			'Fill in the original language for movies and series that are missing it (typically imported before this data was tracked) by fetching their TMDB details. Safe to re-run; already-populated items are skipped.',
 		category: 'maintenance',
 		runEndpoint: '/api/monitoring/search/original-language-backfill'
+	},
+	{
+		id: 'verify-library-files-report',
+		name: 'Verify Library Files (report)',
+		description:
+			'List movie files that look like wrong content: runtime far off the movie, or untagged audio with no language in the name for originals in ORIGINAL_AUDIO_LANGS. Deletes nothing.',
+		category: 'maintenance',
+		runEndpoint: '/api/library/verify-files/report'
+	},
+	{
+		id: 'verify-library-files-fix',
+		name: 'Verify Library Files (fix)',
+		description:
+			'Delete the files the report lists, blocklist their releases and search again. Also runs automatically every week.',
+		category: 'maintenance',
+		runEndpoint: '/api/library/verify-files/fix'
 	}
 ];
 

@@ -99,6 +99,7 @@ import {
 	folderOf
 } from '$lib/server/library/sidecar/SidecarImageService.js';
 import { getMediaParseStem } from '$lib/server/library/media-utils.js';
+import { verifyMovieFile } from '$lib/server/library/file-verification.js';
 import {
 	matchEpisodesByIdentifier,
 	matchEpisodesFromQueueContext as matchEpisodesFromQueueContextShared,
@@ -1337,6 +1338,23 @@ export class ImportService extends EventEmitter {
 		const movieFolder = join(rootFolder.path, movie.path);
 		const allowStrmProbe = movie.scoringProfileId !== 'streamer';
 		const mediaInfo = await mediaInfoService.extractMediaInfo(mainFile.path, { allowStrmProbe });
+
+		// Fork: reject wrong-content files (runtime / untagged original audio)
+		// before they enter the library; blocklist and search again.
+		const verifyReason = verifyMovieFile({
+			movieRuntimeMinutes: movie.runtime,
+			originalLanguage: movie.originalLanguage,
+			mediaInfo,
+			names: [queueItem.title, basename(mainFile.path)]
+		});
+		if (verifyReason) {
+			result.error = `Rejected: ${verifyReason}`;
+			worker.log('error', result.error);
+			logger.warn({ movieId: movie.id, title: queueItem.title }, result.error);
+			await downloadMonitor.rejectRelease(queueItem, result.error);
+			return result;
+		}
+
 		const destFileName = await this.buildMovieFileName(movie, mainFile.path, queueItem, mediaInfo);
 		const destPath = join(movieFolder, destFileName);
 

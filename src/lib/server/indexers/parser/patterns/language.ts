@@ -219,6 +219,11 @@ const LANGUAGE_PATTERNS: Array<{ pattern: RegExp; code: string }> = [
 	{ pattern: /\btam\b/i, code: 'ta' },
 	{ pattern: /\btelugu\b/i, code: 'te' },
 	{ pattern: /\btel\b/i, code: 'te' },
+	// Fork: Malayalam / Kannada
+	{ pattern: /\bmalayalam\b/i, code: 'ml' },
+	{ pattern: /\bmal\b/i, code: 'ml' },
+	{ pattern: /\bkannada\b/i, code: 'kn' },
+	{ pattern: /\bkan\b/i, code: 'kn' },
 
 	// Baltic / Balkan variants
 	{ pattern: /\blatvian\b/i, code: 'lv' },

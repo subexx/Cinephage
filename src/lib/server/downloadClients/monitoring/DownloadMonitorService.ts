@@ -3331,6 +3331,30 @@ export class DownloadMonitorService extends EventEmitter implements BackgroundSe
 	}
 
 	/**
+	 * Fork: a completed release was rejected at import (wrong content). Remove
+	 * the download from its client, fail it, blocklist it permanently and
+	 * search for a different release.
+	 */
+	async rejectRelease(
+		item: typeof downloadQueue.$inferSelect,
+		errorMessage: string
+	): Promise<void> {
+		try {
+			const instance = await getDownloadClientManager().getClientInstance(item.downloadClientId);
+			if (instance) {
+				await instance.removeDownload(this.resolveClientDownloadId(item, 'remove'), true);
+			}
+		} catch (error) {
+			logger.warn(
+				{ title: item.title, error: error instanceof Error ? error.message : String(error) },
+				'Failed to remove rejected release from download client'
+			);
+		}
+		await this.markFailed(item.id, errorMessage, { terminalImport: true });
+		await this.blocklistFailedUsenetRelease(item, errorMessage);
+	}
+
+	/**
 	 * After a release is blocklisted/failed: clear the 1h failed-grab block,
 	 * reset search cooldown, and immediately search for a different release
 	 * instead of waiting for the next daily missing-content run.
